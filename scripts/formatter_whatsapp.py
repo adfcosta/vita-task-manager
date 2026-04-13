@@ -156,8 +156,27 @@ def _render_suggestions(taskfile: TaskFile) -> list[str]:
     return lines
 
 
+def _render_feedback(feedback: dict) -> list[str]:
+    """Retorna linhas da seção de feedback, ou lista vazia se
+    algum dos 4 campos obrigatórios faltar."""
+    required = ("panorama", "foco", "alerta", "acao_sugerida")
+    if not feedback:
+        return []
+    if any(not feedback.get(field) for field in required):
+        return []
+    return [
+        "💬 Da Vita",
+        f"Panorama: {feedback['panorama']}",
+        f"Foco: {feedback['foco']}",
+        f"⚠️ Alerta: {feedback['alerta']}",
+        f"→ {feedback['acao_sugerida']}",
+        "",
+    ]
+
+
 def format_task_file_whatsapp(taskfile: TaskFile, today: date) -> str:
     parts: list[str] = [f"📋 {taskfile.title}", ""]
+    parts.extend(_render_feedback(taskfile.feedback_do_dia))
     parts.extend(_render_open_tasks(taskfile, today))
 
     brain_dump_lines = _render_brain_dump(taskfile)
