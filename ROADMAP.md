@@ -83,6 +83,21 @@ Documento de implementações futuras organizado por versão.
 
 ---
 
+## ✅ v2.4/2.5 — Detecção de Duplicatas, Rollover e Diagnóstico (IMPLEMENTADO)
+
+**Objetivo:** Evitar re-adição de tasks por padrão TDAH e melhorar resiliência do sistema.
+
+- ✅ `ledger-update` — atualização in-place de tasks existentes
+- ✅ Detecção de duplicatas por intersecção de palavras no `ledger-add`
+- ✅ Word weights com 3 fatores (distintividade x evitação x resolução)
+- ✅ `execution-history` gera `word_weights.json` como subproduto
+- ✅ Rollover funciona em qualquer dia da semana (não só domingo)
+- ✅ `ledger-status` para diagnóstico do ledger
+- ✅ Feedback do dia renderizado no formato WhatsApp
+- ✅ 42 testes automatizados
+
+---
+
 ## v3.0 — Integrações
 
 **Objetivo:** Conectar com ferramentas externas e expandir funcionalidades.
@@ -163,5 +178,5 @@ Para decidir o que entra em cada versão:
 
 ---
 
-**Atualizado:** 2026-04-08  
-**Versão do Documento:** 1.0
+**Atualizado:** 2026-04-13  
+**Versão do Documento:** 1.1

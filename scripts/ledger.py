@@ -257,11 +257,8 @@ def get_all_feedback_for_day(ledger: list[dict], on_date: date) -> list[dict]:
 
 
 def needs_rollover(current_ledger_path: Path, today: date) -> bool:
-    """Verifica se precisa de rollover (domingo e ledger ainda é da semana anterior)."""
+    """Verifica se precisa de rollover (ledger é da semana anterior)."""
     if not current_ledger_path.exists():
-        return False
-
-    if today.weekday() != 6:
         return False
 
     match = re.search(r'(\d{6})_(\d{6})_bruto\.jsonl', current_ledger_path.name)
