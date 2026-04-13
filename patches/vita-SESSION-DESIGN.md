@@ -9,6 +9,7 @@
 - https://docs.openclaw.ai/reference/session-management-compaction
 - https://docs.openclaw.ai/concepts/session-pruning
 - https://docs.openclaw.ai/automation/standing-orders
+- https://docs.openclaw.ai/plugins/architecture (Plugin SDK)
 
 ---
 
@@ -209,11 +210,14 @@ recuperar o que o resumo compactado perdeu.
 - Ninguém garante que a Vita lê o memory file após compactação
   (reforçar no AGENTS.md)
 
-### Camada 4 — Plugin CRUD no Janus
+### Camada 4 — Plugin SDK no Janus
 
-O Janus intercepta operações determinísticas e executa o CLI da
-Vita diretamente, sem envolver LLM. Isso elimina ~70% dos
-`sessions_send`.
+Usando o Plugin SDK do OpenClaw
+(https://docs.openclaw.ai/plugins/architecture), o Janus
+intercepta operações determinísticas via hooks de runtime
+(`message:received`, `before_tool_call`) e executa o CLI da Vita
+diretamente em TypeScript — sem envolver LLM, zero tokens. Isso
+elimina ~70% dos `sessions_send`.
 
 **Operações que o plugin resolve (0 tokens):**
 
@@ -235,10 +239,10 @@ Vita diretamente, sem envolver LLM. Isso elimina ~70% dos
 | Feedback do dia | Gerar panorama, foco, alerta, ação sugerida |
 | Recurrence suggestions | Apresentar candidatos com raciocínio |
 
-**Arquitetura do plugin:**
+**Arquitetura do plugin (Plugin SDK do OpenClaw):**
 
 ```typescript
-// Plugin no Janus — TypeScript puro, 0 tokens
+// Plugin SDK hook no Janus — TypeScript puro, 0 tokens
 
 interface VitaIntent {
   type: "complete" | "add" | "cancel" | "start" | "progress" | "complex";
@@ -316,7 +320,7 @@ Baseado nos dados reais de 07-13/04/2026 (49 sessões, 675k tokens/semana).
 | 1. Sessão diária | Bootstrap repetido (~3-4k × N spawns) | ~60% |
 | 2. Pruning | Tool results acumulados no contexto | ~15% adicional |
 | 3. Memory flush | Não reduz tokens — é segurança | 0% (mitigação) |
-| 4. Plugin CRUD | 70% dos sends (operações determinísticas) | ~20% adicional |
+| 4. Plugin SDK | 70% dos sends (operações determinísticas) | ~20% adicional |
 
 ## Riscos e mitigações
 
@@ -457,14 +461,17 @@ openclaw cron add \
 - **Ganho esperado: ~60-77% redução de tokens**
 - **Esforço: configuração, sem código novo**
 
-### Fase 2 — Plugin CRUD no Janus (médio prazo)
+### Fase 2 — Plugin SDK no Janus (médio prazo)
 
-- Implementar `classifyIntent` no plugin do Janus
-- Mapear intenções CRUD para comandos CLI
+- Implementar plugin usando o Plugin SDK do OpenClaw
+  (https://docs.openclaw.ai/plugins/architecture)
+- Hook `message:received` para classificar intenções CRUD
+- `classifyIntent` via regex/keyword matching (sem LLM)
+- Mapear intenções CRUD para comandos CLI da Vita
 - Implementar `cli check-alerts` na Vita (único código novo)
 - Respeitar Duplicate Guardrail (warnings escalam pra LLM)
 - **Ganho esperado: ~15-20% redução adicional**
-- **Esforço: plugin TypeScript + 1 comando CLI novo**
+- **Esforço: plugin TypeScript (Plugin SDK) + 1 comando CLI novo**
 
 ### Fase 3 — Ajuste fino (após 2 semanas de operação)
 
@@ -500,8 +507,11 @@ contexto de spawns/sends sem gastar tokens de LLM na detecção.
 
 ## O que esta proposta NÃO cobre
 
-- Implementação do plugin TypeScript no Janus (responsabilidade do Janus)
+- Implementação do plugin no Janus via Plugin SDK
+  (responsabilidade do Janus — a Vita só fornece os comandos CLI)
 - Configuração de canais de entrega (Telegram, Discord, etc.)
 - Mudanças no AGENTS.md vivo do Domus (aplicação do patch)
-- Monitoramento event-driven via Plugin SDK `before_tool_call`
-  (descartado por complexidade; cron + plugin CRUD cobre 90% do valor)
+- Monitoramento event-driven profundo via `before_tool_call` do
+  Plugin SDK (a camada 4 usa hooks mais simples como
+  `message:received`; interceptação granular de tool calls é
+  possível mas adiciona complexidade sem ganho proporcional)
