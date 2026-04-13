@@ -375,6 +375,129 @@ def cmd_rollover(args) -> int:
     return 0
 
 
+def cmd_ledger_status(args) -> int:
+    """Diagnóstico do estado atual do ledger."""
+    try:
+        from .ledger import (
+            _merge_task_records,
+            get_carry_over_tasks,
+            get_ledger_filename,
+            get_week_end,
+            get_week_start,
+        )
+    except ImportError:
+        from ledger import (
+            _merge_task_records,
+            get_carry_over_tasks,
+            get_ledger_filename,
+            get_week_end,
+            get_week_start,
+        )
+
+    from datetime import timedelta
+
+    data_dir = Path(args.data_dir)
+    today = _ddmm_to_date(args.today, args.year)
+    hist = data_dir / "historico"
+
+    current_sunday = get_week_start(today)
+    current_saturday = get_week_end(today)
+    current_file = get_ledger_filename(today)
+    current_path = hist / current_file
+
+    prev_sunday = current_sunday - timedelta(days=7)
+    prev_file = get_ledger_filename(prev_sunday)
+    prev_path = hist / prev_file
+
+    result: dict[str, Any] = {
+        "today": str(today),
+        "current_week": {
+            "start": str(current_sunday),
+            "end": str(current_saturday),
+            "file": current_file,
+            "exists": current_path.exists(),
+        },
+        "previous_week": {
+            "start": str(prev_sunday),
+            "end": str(prev_sunday + timedelta(days=6)),
+            "file": prev_file,
+            "exists": prev_path.exists(),
+        },
+    }
+
+    # Estado do ledger atual
+    if current_path.exists():
+        ledger = load_ledger(current_path)
+        merged = _merge_task_records(ledger)
+        open_tasks = [t for t in merged.values() if t.get("status") in ("[ ]", "[~]")]
+        done_tasks = [t for t in merged.values() if t.get("status") == "[x]"]
+        cancelled = [t for t in merged.values() if t.get("status") == "[-]"]
+        carried = [t for t in merged.values() if t.get("carried_from")]
+
+        result["current_ledger"] = {
+            "total_tasks": len(merged),
+            "open": len(open_tasks),
+            "in_progress": len([t for t in open_tasks if t.get("status") == "[~]"]),
+            "completed": len(done_tasks),
+            "cancelled": len(cancelled),
+            "carried_from_previous": len(carried),
+            "open_tasks": [
+                {
+                    "id": t.get("id"),
+                    "description": t.get("description"),
+                    "status": t.get("status"),
+                    "postpone_count": t.get("postpone_count", 0),
+                    "carried_from": t.get("carried_from"),
+                }
+                for t in open_tasks
+            ],
+        }
+    else:
+        result["current_ledger"] = None
+
+    # Estado do ledger anterior
+    if prev_path.exists():
+        prev_ledger = load_ledger(prev_path)
+        pending = get_carry_over_tasks(prev_ledger)
+        result["previous_ledger"] = {
+            "pending_tasks": len(pending),
+            "needs_rollover": len(pending) > 0 and not current_path.exists(),
+            "tasks": [
+                {
+                    "id": t.get("id"),
+                    "description": t.get("description"),
+                    "status": t.get("status"),
+                    "postpone_count": t.get("postpone_count", 0),
+                }
+                for t in pending
+            ],
+        }
+    else:
+        result["previous_ledger"] = None
+
+    # Diagnóstico
+    issues = []
+    if not current_path.exists() and prev_path.exists():
+        pending = get_carry_over_tasks(load_ledger(prev_path))
+        if pending:
+            issues.append(f"Rollover pendente: {len(pending)} tasks da semana anterior não foram migradas")
+    if result["current_ledger"] and result["current_ledger"]["carried_from_previous"] == 0 and prev_path.exists():
+        prev_pending = get_carry_over_tasks(load_ledger(prev_path))
+        # Verifica se o ledger anterior tem tasks que não foram rolled over
+        has_rollover_ops = any(
+            r.get("_operation") == "rollover"
+            for r in load_ledger(prev_path)
+        )
+        if prev_pending and not has_rollover_ops:
+            issues.append(f"Ledger atual existe mas {len(prev_pending)} tasks da semana anterior não foram migradas")
+
+    result["issues"] = issues
+    result["healthy"] = len(issues) == 0
+
+    _emit(result, compact=False)
+    return 0
+
+
 def cmd_weekly_summary(args) -> int:
     summary = build_weekly_summary(Path(args.ledger))
     if args.output:
@@ -691,6 +814,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--year", type=int, required=True)
     p.add_argument("--data-dir", required=True)
     p.set_defaults(func=cmd_rollover)
+
+    p = sub.add_parser("ledger-status", help="Diagnóstico do estado do ledger")
+    p.add_argument("--today", required=True)
+    p.add_argument("--year", type=int, required=True)
+    p.add_argument("--data-dir", required=True)
+    p.set_defaults(func=cmd_ledger_status)
 
     p = sub.add_parser("weekly-summary", help="Gera resumo semanal")
     p.add_argument("--ledger", required=True, help="Caminho do arquivo bruto JSONL")

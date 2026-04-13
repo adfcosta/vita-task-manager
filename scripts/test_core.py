@@ -1047,6 +1047,43 @@ def test_rollover_no_duplicate():
         print("✓ test_rollover_no_duplicate")
 
 
+def test_ledger_status_cli():
+    """ledger-status retorna diagnóstico correto via CLI."""
+    from ledger import get_ledger_filename, get_week_start
+
+    with tempfile.TemporaryDirectory() as tmp:
+        data_dir = Path(tmp)
+        hist = data_dir / "historico"
+        hist.mkdir()
+
+        # Semana anterior com tasks pendentes
+        last_sunday = date(2026, 4, 5)
+        old_ledger = hist / get_ledger_filename(last_sunday)
+        _write_jsonl(old_ledger, [
+            _create_test_ledger_record("t1", "Task pendente", "[ ]"),
+            _create_test_ledger_record("t2", "Task feita", "[x]", completed_at="2026-04-07T17:00:00"),
+        ])
+
+        # Sem ledger da semana atual — rollover pendente
+        result = subprocess.run(
+            [sys.executable, str(CLI_PATH), "ledger-status",
+             "--today", "13/04", "--year", "2026", "--data-dir", str(data_dir)],
+            capture_output=True, text=True,
+            env={**__import__('os').environ, "VITA_TEST_MODE": "1"},
+        )
+        assert result.returncode == 0, f"CLI falhou: {result.stderr}"
+        status = json.loads(result.stdout)
+
+        assert status["current_week"]["exists"] is False
+        assert status["previous_week"]["exists"] is True
+        assert status["previous_ledger"]["pending_tasks"] == 1
+        assert status["previous_ledger"]["needs_rollover"] is True
+        assert len(status["issues"]) > 0
+        assert status["healthy"] is False
+
+        print("✓ test_ledger_status_cli")
+
+
 def run_all_tests():
     """Executa todos os testes."""
     print('\n=== Testes vita-task-manager ===\n')
@@ -1087,6 +1124,7 @@ def run_all_tests():
     test_rollover_on_sunday()
     test_rollover_missed_sunday()
     test_rollover_no_duplicate()
+    test_ledger_status_cli()
     print('\n✓ Todos os testes passaram!\n')
 
 
