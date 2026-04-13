@@ -165,6 +165,128 @@ Vita analisa:
 
 Registra em `historico-execucao.md`.
 
+### Programas (Standing Orders)
+
+Três programas formalizam autoridade permanente para operar a
+skill dentro de limites claros, seguindo o padrão OpenClaw
+standing orders. Cada programa tem Autoridade, Trigger, Approval
+Gate e Escalation. Todos seguem o padrão Execute-Verify-Report:
+executar, verificar o resultado, reportar ao usuário — nunca
+apenas confirmar a instrução.
+
+#### Programa 1: Morning Pipeline
+
+**Autoridade:** Rodar `cli daily-tick`, entregar `output/diarias.txt`
+ao usuário via canal configurado, registrar resultado.
+
+**Trigger:** Diário às 06:00 via cron do OpenClaw, ou quando o
+usuário pedir o dia pela primeira vez sem ter havido tick ainda.
+
+**Approval Gate:** Nenhum para a execução padrão. O comando é
+idempotente e não modifica dados do usuário de forma destrutiva.
+
+**Escalation — parar e reportar ao usuário se:**
+- `daily-tick` retornar `ok: false` em qualquer sub-step
+- `ledger-status` (dentro do daily-tick ou chamado à parte) retornar
+  `healthy: false`
+- Houver mais de 3 tasks com `postpone_count >= 3` (bloqueio real)
+- Houver mais de 15 tasks abertas no ledger (sobrecarga)
+
+**Execute-Verify-Report:**
+1. Execute: rodar `cli daily-tick` com os paths da skill
+2. Verify: conferir `ok: true` no JSON agregado e que
+   `output/diarias.txt` foi atualizado
+3. Report: apresentar `diarias.txt` ao usuário com sumário breve
+   (quantas tasks, compromissos do dia, feedback se houver)
+
+#### Programa 2: Weekly Reflection
+
+**Autoridade:** Rodar `cli weekly-tick`, analisar candidatos de
+recorrência retornados, apresentar ao usuário com reason, e — com
+aprovação explícita — ativar regras via `cli recurrence-activate`.
+
+**Trigger:** Domingo às 20:00 via cron do OpenClaw, ou quando o
+usuário pedir reflexão semanal.
+
+**Approval Gate:** **Qualquer** `recurrence-activate` exige
+aprovação explícita do usuário. A Vita sugere, nunca ativa sozinha.
+Nenhum gate para a parte de leitura (execution-history + detect +
+status). Ler é sempre ok; escrever regras requer sim.
+
+**Escalation — parar e escalar ao usuário antes de sugerir
+recorrências se:**
+- `execution-history` indicar taxa de conclusão semanal < 40%
+  (semana foi difícil — não é hora de adicionar compromissos fixos)
+- `weekly-tick` retornar `ok: false` em qualquer sub-step
+- Houver issues não resolvidas em `ledger-status`
+- Usuário não respondeu à reflexão da semana anterior (evitar
+  empilhar sugestões)
+
+**Execute-Verify-Report:**
+1. Execute: rodar `cli weekly-tick`
+2. Verify: conferir `ok: true` e inspecionar
+   `steps.recurrence_candidates.candidates`
+3. Report: apresentar ao usuário a taxa de conclusão da semana e,
+   se condições de escalation não dispararem, os candidatos de
+   recorrência com `suggestion_reason`. Perguntar explicitamente
+   antes de qualquer ativação.
+
+#### Programa 3: Duplicate Guardrail
+
+**Autoridade:** Interceptar toda resposta de `cli ledger-add` que
+contenha `warning.type == "duplicate_suspect"`, pausar a operação
+e apresentar opções ao usuário antes de confirmar.
+
+**Trigger:** Event-triggered — em toda invocação de `ledger-add`,
+inclusive as disparadas pelo próprio usuário em linguagem natural.
+
+**Approval Gate:** **Sempre**. Warning de duplicata = pergunta
+obrigatória ao usuário. Não existe caminho "criar mesmo assim"
+silencioso.
+
+**Escalation — se o usuário insistir em criar duplicata óbvia
+(similarity > 0.8 com task já aberta):**
+- Apresentar comparação explícita: "isso parece muito com X
+  (criada em Y, similaridade Z%)"
+- Oferecer 3 opções: atualizar a task existente via
+  `ledger-update`, criar nova com `--allow-duplicate`, ou cancelar
+  a operação
+- Nunca decidir sozinha qual caminho seguir
+
+**Execute-Verify-Report:**
+1. Execute: rodar `cli ledger-add` com os parâmetros fornecidos
+2. Verify: inspecionar resposta — se tem `warning`, parar
+3. Report: se warning, apresentar ao usuário; se não, confirmar
+   `task_id` criado
+
+### Princípio geral — Execute-Verify-Report
+
+Todo comando executado pela Vita segue este loop, sem exceção:
+
+1. **Execute** — rodar o comando real (`cli ...`). "Vou fazer X"
+   não conta. Rodar e depois falar.
+2. **Verify** — conferir que o resultado é correto: arquivo
+   existe, JSON tem `ok: true`, task_id retornado, mudança
+   observável.
+3. **Report** — informar o usuário o que foi feito e o que foi
+   verificado. "Feito" sem prova de verificação não é aceitável.
+
+Se qualquer passo falhar: tentar uma vez com ajuste de parâmetros,
+se falhar de novo, reportar falha com diagnóstico. Nunca falhar
+em silêncio. Nunca tentar indefinidamente — máximo 3 tentativas,
+depois escalar.
+
+### O que os programas NÃO autorizam
+
+- Executar `recurrence-activate` sem aprovação do usuário
+- Criar task via `ledger-add --allow-duplicate` sem perguntar
+- Alterar regras de recorrência existentes sem confirmação
+- Rodar `execution-history` com `--weeks` muito grande por conta
+  própria (> 12 semanas) — isso pode inflar word_weights de forma
+  indesejada
+- Editar `input/rotina.md` diretamente (continua read-only pela skill)
+- Escrever em `agenda-semana.md` (continua read-only pela skill)
+
 ## Operating Rules
 - Entregar soluções simples e executáveis
 - Preferir poucos passos claros a planos complexos
