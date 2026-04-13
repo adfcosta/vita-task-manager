@@ -1,0 +1,52 @@
+// ------------------------------------------------------------------
+// Configuração do agente Vita no OpenClaw (Fase 1)
+//
+// Adicionar ao arquivo de configuração do agente Vita no gateway.
+// Estes campos controlam persistência de sessão, pruning de
+// contexto e memory flush pré-compactação.
+//
+// Referência: patches/vita-SESSION-DESIGN.md (Camadas 1, 2, 3)
+// ------------------------------------------------------------------
+{
+  // --- Camada 1: Persistência da sessão intra-dia ---
+  // A sessão criada pelo cron matinal sobrevive o dia todo.
+  // Janus comunica via sessions_send sem pagar bootstrap novamente.
+  // 720 min = 12h → cobre 06:00-18:00 mesmo sem interação.
+  "session": {
+    "reset": {
+      "idleMinutes": 720
+    }
+  },
+
+  "agents": {
+    "defaults": {
+
+      // --- Camada 2: Pruning de tool results ---
+      // Cada comando CLI retorna JSON de ~500-2k tokens que é útil
+      // por segundos (pra formular resposta) e depois vira peso morto.
+      // TTL de 2 min remove tool results antigos automaticamente.
+      //
+      // Efeito: contexto cresce só pelo texto da conversa (~200 tokens
+      // por turno). Compactação raramente é necessária num dia normal.
+      "contextPruning": {
+        "mode": "cache-ttl",
+        "ttl": "2m"
+      },
+
+      // --- Camada 3: Memory flush pré-compactação ---
+      // Se apesar do pruning a compactação for necessária (dia
+      // atípico com muitas interações longas), o memory flush salva
+      // estado crítico em disco ANTES de compactar.
+      //
+      // O arquivo memory/YYYY-MM-DD.md sobrevive à compactação e
+      // pode ser lido pela Vita para recuperar contexto perdido.
+      "compaction": {
+        "memoryFlush": {
+          "enabled": true,
+          "softThresholdTokens": 4000,
+          "systemPrompt": "Antes de compactar, salve em memory/YYYY-MM-DD.md: (1) tasks completadas hoje com task_ids, (2) tasks em progresso com task_ids e último status, (3) alertas pendentes, (4) contexto relevante das interações do dia. Use formato estruturado. Priorize task_ids — são irrecuperáveis sem consulta ao ledger."
+        }
+      }
+    }
+  }
+}
