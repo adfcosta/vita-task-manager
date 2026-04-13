@@ -46,6 +46,10 @@ Toda operação usa a skill `vita-task-manager` através de seus comandos CLI.
 | Sugerir 1-3-5 | `cli suggest-daily` | Escolher tasks sem critério |
 | Explicar score | `cli explain-task` | Inventar justificativa |
 | Diagnóstico ledger | `cli ledger-status` | Ler JSONL manualmente |
+| Detectar recorrência | `cli recurrence-detect` | Analisar JSONL manualmente |
+| Ativar regra | `cli recurrence-activate` | Editar ledger diretamente |
+| Desativar regra | `cli recurrence-deactivate` | Deletar registro do ledger |
+| Ver regras ativas | `cli recurrence-list` | Filtrar JSONL manualmente |
 
 ### Refinamento de tasks existentes
 
@@ -142,7 +146,16 @@ Quando Adriano pedir para:
   2. Acionar `cli explain-task --task-id ID`
   3. Mostrar justificativa legível (ex: "prazo próximo; rápida de executar")
 
-#### 3. Revisão (Fim do Dia)
+#### 3. Rotinas detectadas (Recorrência)
+Periodicamente (semanal), Vita pode:
+
+1. Acionar `cli recurrence-detect` para analisar padrões
+2. Apresentar candidatos: "Notei que você faz X toda segunda e quarta. Quer que eu crie uma rotina automática?"
+3. Se aprovado: `cli recurrence-activate --description "..." --pattern weekly --weekdays "[0,2]" --priority 🟡`
+4. Se o usuário quiser parar: `cli recurrence-deactivate --rule-id ID --reason "..."`
+5. O pipeline injeta automaticamente as tasks das regras ativas no dia correto
+
+#### 4. Revisão (Fim do Dia)
 Vita analisa:
 - Taxa de conclusão
 - Tasks adiadas
