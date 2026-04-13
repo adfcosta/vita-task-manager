@@ -13,8 +13,8 @@ Sistema de gerenciamento de tarefas pessoais com **ledger JSONL** como fonte de 
 
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  agenda-fixa.md │     │  agenda-semana  │     │  tasks manuais  │
-│   (rotina fixa) │     │   (lembretes)   │     │   (ad-hoc)      │
+│   rotina.md     │     │  agenda-semana  │     │  tasks manuais  │
+│  (rotina diária)│     │   (lembretes)   │     │   (ad-hoc)      │
 └────────┬────────┘     └────────┬────────┘     └────────┬────────┘
          │                       │                       │
          └───────────────────────┼───────────────────────┘
@@ -30,7 +30,7 @@ Sistema de gerenciamento de tarefas pessoais com **ledger JSONL** como fonte de 
         ┌──────────┐    ┌──────────┐    ┌──────────────┐
         │  Render  │    │ Feedback │    │   Weekly     │
         │ diarias  │    │  Vita    │    │   Summary    │
-        │  .md     │    │          │    │              │
+        │  .txt    │    │          │    │              │
         └──────────┘    └──────────┘    └──────────────┘
 ```
 
@@ -55,7 +55,7 @@ O ledger é um arquivo append-only onde cada linha é um evento JSON:
 ```bash
 python3 scripts/cli.py pipeline \
   --today DD/MM --year YYYY \
-  --agenda-fixa PATH \
+  --rotina PATH \
   --agenda-semana PATH \
   --data-dir PATH \
   --output PATH
@@ -63,9 +63,9 @@ python3 scripts/cli.py pipeline \
 
 **Fluxo:**
 1. **Rollover** — carrega tarefas pendentes de dias anteriores
-2. **Sync Fixed** — adiciona itens da rotina fixa do dia
+2. **Sync Fixed** — adiciona itens da rotina diária
 3. **Merge** — combina com tasks manuais existentes
-4. **Render** — gera `diarias.md` limpo (apenas leitura)
+4. **Render** — gera `diarias.txt` limpo em formato WhatsApp (apenas leitura)
 5. **Feedback Check** — determina se Vita deve dar feedback
 
 ---
@@ -76,10 +76,10 @@ O sistema gera dois formatos de saída:
 
 | Arquivo | Formato | Uso |
 |---------|---------|-----|
-| `diarias.txt` | Texto puro | WhatsApp (leitura rápida, sem formatação) |
-| `diarias.md` | Markdown | Visualização rica, compatível com editores |
+| `diarias.txt` | WhatsApp | Padrão do pipeline — layout otimizado para leitura em mobile |
+| `diarias.md` | Markdown | Formato alternativo opcional, invocado via `--format markdown` no comando `render` |
 
-**Conversão:** O formato `.txt` é gerado a partir do `.md` com stripping de markdown para compatibilidade com WhatsApp.
+**Implementação:** Os dois formatos são gerados por formatters independentes (`formatter_whatsapp.py` e `formatter.py`). O `.txt` **não** é derivado do `.md`; é gerado diretamente pelo `formatter_whatsapp` a partir do `TaskFile`.
 
 ---
 
@@ -118,7 +118,7 @@ O sistema gera dois formatos de saída:
 
 | Comando | Descrição |
 |---------|-----------|
-| `sync-fixed` | Sincroniza rotina fixa do dia |
+| `sync-fixed` | Sincroniza rotina diária |
 | `store-feedback` | Salva feedback da Vita no ledger |
 
 ---
@@ -131,10 +131,10 @@ O sistema gera dois formatos de saída:
 # 1. Executar pipeline
 python3 scripts/cli.py pipeline \
   --today 08/04 --year 2026 \
-  --agenda-fixa ~/agenda-fixa.md \
+  --rotina ~/rotina.md \
   --agenda-semana ~/agenda_da_semana.md \
   --data-dir ./data \
-  --output ./diarias.md
+  --output ./diarias.txt
 ```
 
 **Retorno JSON inclui:**
@@ -143,7 +143,7 @@ python3 scripts/cli.py pipeline \
   "feedback_status": "required",  // required | offer | skip
   "feedback_seed": { ... },
   "tasks_count": 5,
-  "rendered_to": "./diarias.md"
+  "rendered_to": "./diarias.txt"
 }
 ```
 
@@ -279,15 +279,14 @@ cli brain-dump --text "Trocar lâmpada, ligar pro João, comprar café"
 
 No render aparece em seção separada com dica TDAH:
 
-```markdown
-## 🧠 Brain Dump
+```
+🧠 BRAIN DUMP
 
-> 💡 Dica TDAH: Escolha APENAS 1 item para virar próxima ação. 
-> O resto pode esperar.
+• Trocar lâmpada
+• Ligar pro João
+• Comprar café
 
-- [ ] Trocar lâmpada
-- [ ] Ligar pro João  
-- [ ] Comprar café
+💡 Dica: Escolha 1 pra virar próxima ação
 ```
 
 **Promoção seletiva:**
