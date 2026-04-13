@@ -5,6 +5,26 @@ Todas as mudanças notáveis desta skill serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [2.9.0] - 2026-04-13
+
+### Adicionado
+- `patches/vita-SESSION-DESIGN.md`: proposta de otimização de sessão
+  com 4 camadas complementares:
+  - Sessão isolada diária via cron (elimina bootstrap repetido)
+  - Session pruning cache-ttl (impede acúmulo de tool results)
+  - Memory flush pré-compactação (preserva estado crítico em disco)
+  - Plugin CRUD no Janus (resolve operações atômicas sem LLM)
+- Projeção de custos baseada em dados reais da semana 07-13/04/2026
+  (49 sessões, 675k tokens → estimativa de ~130k/semana com as 4 camadas)
+- Plano de implementação em 3 fases (config → plugin → ajuste fino)
+- Referência à proposta na seção Automação do SKILL.md
+
+### Notas
+- Nenhum código novo. PR puramente documental.
+- Fase 1 (sessão diária + pruning) é config-only no OpenClaw.
+- Fase 2 (plugin CRUD) requer implementação no Janus + `cli check-alerts` na Vita.
+- A proposta é complementar aos Standing Orders de v2.8.0.
+
 ## [2.8.0] - 2026-04-13
 
 ### Adicionado

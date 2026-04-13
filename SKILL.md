@@ -470,6 +470,17 @@ para rodar esses programas dentro dos limites de Approval Gate e
 Escalation documentados. Nenhuma feature nova de código é
 necessária — os programas compõem comandos existentes.
 
+### Otimização de sessão
+
+A Vita é projetada para operar com **sessão isolada diária** em
+vez de múltiplos spawns efêmeros. Um cron às 06:00 cria a sessão
+do dia, e o Janus comunica via `sessions_send` ao longo do dia,
+eliminando o bootstrap repetido (~60-80% de redução de tokens).
+
+A proposta completa — incluindo pruning de tool results, memory
+flush pré-compactação e plugin CRUD no Janus — está documentada
+em `patches/vita-SESSION-DESIGN.md`.
+
 ## Arquivos-chave
 
 | Arquivo | Responsabilidade |
