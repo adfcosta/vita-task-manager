@@ -22,6 +22,7 @@ Exceção: `input/rotina.md` e `input/agenda-semana.md` são editados manualment
 | `input/rotina.md` | Rotina diária (entra todo dia no pipeline) | Usuário |
 | `input/agenda-semana.md` | Compromissos pontuais da semana | Usuário |
 | `data/historico/DDMMYY_DDMMYY_bruto.jsonl` | Ledger append-only (fonte de verdade) | CLI |
+| `data/historico-execucao.md` | Relatório de padrões de execução | CLI (execution-history) |
 | `output/diarias.txt` | Render diário em formato WhatsApp | CLI (pipeline/render) |
 
 `output/diarias.md` **não existe por padrão** — só é gerado se você invocar `render --format markdown --output output/diarias.md` explicitamente.
@@ -251,6 +252,19 @@ python3 scripts/cli.py weekly-summary \
   --format md  # ou json
 ```
 
+### Histórico de execução
+
+```bash
+python3 scripts/cli.py execution-history \
+  --today DD/MM --year YYYY --data-dir data \
+  --output data/historico-execucao.md \
+  --weeks 4
+```
+
+Gera relatório de padrões de execução lido pela Vita no Session Start para calibrar planejamento. Métricas: taxa de conclusão semanal, análise por origem (rotina/manual/brain_dump), top 5 tasks mais adiadas, desempenho por dia da semana.
+
+O arquivo usa marcadores `<!-- BEGIN METRICS -->` / `<!-- END METRICS -->` — re-runs atualizam só as métricas, preservando a seção `## Observações` (anotações manuais).
+
 ### Legado (não usar)
 
 `validate`, `summary`, `add`, `progress`, `complete`, `cancel`, `resort` — operam no formato markdown antigo (pré-ledger). Mantidos apenas por compatibilidade. **A Vita não deve invocar esses.**
@@ -325,4 +339,5 @@ A flag `VITA_TEST_MODE=1` ativa proteção anti-contaminação: se algum teste t
 | `scripts/render.py` | Montagem do TaskFile a partir do ledger |
 | `scripts/formatter_whatsapp.py` | Formato WhatsApp (padrão) |
 | `scripts/formatter.py` | Formato markdown (opcional) |
+| `scripts/execution_history.py` | Relatório de padrões de execução |
 | `scripts/test_core.py` | Suíte de testes |
