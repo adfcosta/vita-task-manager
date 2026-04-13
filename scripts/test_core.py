@@ -186,11 +186,11 @@ def test_progress_tracking():
 
 def test_sync_fixed_dedup():
     """Sync não deve duplicar entradas."""
-    rotina_content = """# Agenda Fixa
+    rotina_content = """# Rotina
 
 ## Tarefas Diárias
-- [ ] 🔴 06:00 | Tomar remédios
-- [ ] 🟡 15:00 | Terapia
+- 06:00 | Tomar remédios
+- 15:00 | Terapia
 """
     with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
         data_dir = Path(tmp)
@@ -201,6 +201,26 @@ def test_sync_fixed_dedup():
         result1 = sync_fixed_agenda(rotina_path, ledger_path, '08/04', 2026)
         assert len(result1['inserted']) == 2
 
+        # Valida conteúdo parseado, não só contagem
+        ledger = load_ledger(ledger_path)
+        rotina_tasks = [
+            r for r in ledger
+            if r.get('type') == 'task' and r.get('source') == 'rotina'
+        ]
+        descriptions = {r['description'] for r in rotina_tasks}
+        contexts = {r['context'] for r in rotina_tasks}
+        assert descriptions == {'Tomar remédios', 'Terapia'}, (
+            f"Descriptions parseadas = {descriptions}. "
+            "Se aparecer lixo tipo '[ ] 🔴 06:00 | Tomar remédios', "
+            "o parser está aceitando formato antigo silenciosamente."
+        )
+        assert contexts == {'06:00', '15:00'}, (
+            f"Contexts parseados = {contexts}. "
+            "Se aparecer lixo tipo '[ ] 🔴 06:00 | Tomar remédios', "
+            "o parser está aceitando formato antigo silenciosamente."
+        )
+
+        # Idempotência: segunda sync não duplica
         result2 = sync_fixed_agenda(rotina_path, ledger_path, '08/04', 2026)
         assert len(result2['inserted']) == 0
         assert len(result2['skipped']) == 2
