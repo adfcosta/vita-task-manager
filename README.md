@@ -2,7 +2,7 @@
 
 Sistema de gerenciamento de tarefas pessoais com **ledger JSONL** como fonte de verdade, otimizado para TDAH.
 
-**Versão:** 2.3.1  
+**Versão:** 2.5.0  
 **Localização:** `/home/node/.openclaw/workspace/vita/skills/vita-task-manager/`
 
 ---
@@ -62,7 +62,7 @@ python3 scripts/cli.py pipeline \
 ```
 
 **Fluxo:**
-1. **Rollover** — carrega tarefas pendentes de dias anteriores
+1. **Rollover** — carrega tarefas pendentes da semana anterior (roda no primeiro dia da semana nova)
 2. **Sync Fixed** — adiciona itens da rotina diária
 3. **Merge** — combina com tasks manuais existentes
 4. **Render** — gera `diarias.txt` limpo em formato WhatsApp (apenas leitura)
@@ -97,11 +97,13 @@ O sistema gera dois formatos de saída:
 
 | Comando | Descrição |
 |---------|-----------|
-| `ledger-add` | Adiciona nova task ao ledger |
+| `ledger-add` | Adiciona nova task ao ledger (com detecção de duplicatas) |
+| `ledger-update` | Atualiza campos de task existente (descrição, contexto, prioridade, prazo) |
 | `ledger-start` | Inicia uma tarefa (muda status para in_progress) |
 | `ledger-progress` | Atualiza progresso (0-100%) |
 | `ledger-complete` | Marca como concluída |
 | `ledger-cancel` | Cancela com motivo |
+| `ledger-status` | Diagnóstico do estado do ledger (saúde, rollover, issues) |
 | `score-task` | Calcula score de prioridade para uma tarefa |
 | `explain-task` | Explica o score de uma tarefa |
 | `suggest-daily` | Sugere tarefas do dia (método 1-3-5) |
@@ -120,6 +122,8 @@ O sistema gera dois formatos de saída:
 |---------|-----------|
 | `sync-fixed` | Sincroniza rotina diária |
 | `store-feedback` | Salva feedback da Vita no ledger |
+| `execution-history` | Relatório de padrões de execução + word weights |
+| `rollover` | Rollover semanal manual |
 
 ---
 
@@ -296,11 +300,16 @@ cli dump-to-task --dump-id ... --item "Trocar lâmpada" --next-action "Ir na loj
 
 O item convertido some automaticamente do brain dump.
 
-### Features Implementadas (v2.2 - v2.3)
+### Features Implementadas (v2.2 - v2.5)
 
 - ✅ **Scoring automático:** Algoritmo 1-3-5 sugere quais tarefas fazer
 - ✅ **Complexidade inferida:** IA avalia dificuldade (1-10)
 - ✅ **WIP limit:** Limite de tarefas em progresso (1-2)
+- ✅ **Detecção de duplicatas:** Similaridade ponderada por dificuldade de execução (3 fatores)
+- ✅ **Ledger-update:** Atualização in-place de tasks existentes
+- ✅ **Histórico de execução:** Relatório semanal de padrões + word weights
+- ✅ **Rollover resiliente:** Migração de tasks em qualquer dia da semana
+- ✅ **Diagnóstico:** `ledger-status` para troubleshooting
 
 ### Próximas Features (v3.0+)
 
@@ -340,9 +349,13 @@ vita-task-manager/
 │   ├── pipeline.py      # Orquestrador
 │   ├── render.py        # Geração de saída
 │   ├── feedback_logic.py # Lógica de feedback
+│   ├── execution_history.py # Padrões de execução + word weights
+│   ├── rollover.py      # Transição semanal
 │   └── test_core.py     # Testes automatizados
 └── data/
-    └── historico/       # Ledgers JSONL
+    ├── historico/       # Ledgers JSONL
+    ├── historico-execucao.md  # Relatório de padrões
+    └── word_weights.json     # Pesos para detecção de duplicatas
 ```
 
 ---

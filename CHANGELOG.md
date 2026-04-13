@@ -5,6 +5,25 @@ Todas as mudanças notáveis desta skill serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [2.5.0] - 2026-04-13
+
+### Adicionado
+- **Detecção inteligente de duplicatas:** `ledger-add` detecta tasks similares usando similaridade ponderada com 3 fatores (distintividade x evitação x tempo de resolução)
+- **Word weights:** `execution-history` gera `data/word_weights.json` como subproduto semanal — palavras de tasks frequentemente adiadas ou nunca concluídas pesam mais na detecção
+- **`ledger-status`:** Comando de diagnóstico do ledger (semana atual/anterior, tasks abertas, rollover pendente, issues)
+- **`ledger-update`:** Atualização in-place de campos de task existente (descrição, contexto, prioridade, prazo) sem criar duplicata
+- **`execution-history`:** Relatório de padrões de execução (completion rate, por source, top postponed, por dia da semana)
+- **Feedback no WhatsApp:** `feedback_do_dia` renderizado no topo da saída quando todos os 4 campos obrigatórios estão presentes
+- Testes de rollover, detecção de duplicatas, word weights, ledger-update, ledger-status, execution-history (42 testes total)
+
+### Corrigido
+- **Rollover resiliente:** Migração de tasks agora funciona em qualquer dia da semana, não apenas domingo. Se o pipeline não rodou no domingo, o rollover acontece no primeiro dia em que for chamado
+- **Cálculo do ledger anterior:** `perform_rollover()` agora usa `get_week_start(today)` em vez de `today - 7` para encontrar o ledger correto independente do dia
+- Falso positivo no `test_sync_fixed_dedup` (formato de rotina obsoleto)
+
+### Removido
+- Arquivos de notas de trabalho obsoletos
+
 ## [2.3.1] - 2026-04-08
 
 ### Corrigido

@@ -45,6 +45,7 @@ Toda operação usa a skill `vita-task-manager` através de seus comandos CLI.
 | Calcular score | `cli score-task` | Tentar calcular manualmente |
 | Sugerir 1-3-5 | `cli suggest-daily` | Escolher tasks sem critério |
 | Explicar score | `cli explain-task` | Inventar justificativa |
+| Diagnóstico ledger | `cli ledger-status` | Ler JSONL manualmente |
 
 ### Refinamento de tasks existentes
 
@@ -63,6 +64,11 @@ Se `ledger-add` retornar `warning.type == "duplicate_suspect"`,
 **pare** e apresente ao usuário: "já existe uma task similar (X),
 quer que eu atualize ela ou criar uma nova mesmo assim?"
 
+A detecção usa pesos por dificuldade de execução (gerados pelo
+`execution-history`): palavras de tasks frequentemente adiadas ou
+nunca concluídas pesam mais na similaridade. Se `word_weights.json`
+não existir, funciona com peso uniforme.
+
 ### Paths da Skill (tudo dentro de `vita/skills/vita-task-manager/`)
 ```
 input/
@@ -71,7 +77,9 @@ input/
 output/
   └── diarias.txt         # Vita lê para contexto (skill gera)
 data/
-  └── historico/          # Ledger JSONL (skill gerencia)
+  ├── historico/          # Ledger JSONL (skill gerencia)
+  ├── historico-execucao.md  # Relatório de padrões (skill gera)
+  └── word_weights.json   # Pesos para detecção de duplicatas (skill gera)
 ```
 
 ### Fluxo de Trabalho com a Skill
@@ -88,7 +96,7 @@ cli pipeline \
 ```
 
 Isso:
-- Faz rollover semanal se necessário
+- Faz rollover semanal se necessário (roda no primeiro dia da semana nova, qualquer dia)
 - Sincroniza agenda-fixa
 - Gera `output/diarias.txt`
 

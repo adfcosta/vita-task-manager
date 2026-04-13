@@ -7,7 +7,7 @@ description: Gerenciar tarefas pessoais via ledger JSONL e CLI dedicada.
 
 Sistema de tasks pessoais com **ledger JSONL append-only** como fonte de verdade, otimizado para TDAH.
 
-**Versão:** 2.4.0
+**Versão:** 2.5.0
 
 ## Regra de Ouro
 
@@ -23,6 +23,7 @@ Exceção: `input/rotina.md` e `input/agenda-semana.md` são editados manualment
 | `input/agenda-semana.md` | Compromissos pontuais da semana | Usuário |
 | `data/historico/DDMMYY_DDMMYY_bruto.jsonl` | Ledger append-only (fonte de verdade) | CLI |
 | `data/historico-execucao.md` | Relatório de padrões de execução | CLI (execution-history) |
+| `data/word_weights.json` | Pesos por palavra para detecção de duplicatas | CLI (execution-history) |
 | `output/diarias.txt` | Render diário em formato WhatsApp | CLI (pipeline/render) |
 
 `output/diarias.md` **não existe por padrão** — só é gerado se você invocar `render --format markdown --output output/diarias.md` explicitamente.
@@ -79,7 +80,7 @@ python3 scripts/cli.py pipeline \
 
 O que acontece internamente:
 
-1. **Rollover semanal** — se for domingo e houver ledger da semana anterior, carrega tasks pendentes/em andamento pro novo ledger (automático)
+1. **Rollover semanal** — se houver ledger da semana anterior com tasks pendentes, carrega pro novo ledger (automático, roda no primeiro dia da semana em que o pipeline for chamado)
 2. **Sync da rotina** — injeta as entradas de `rotina.md` do dia no ledger (dedupe via hash, não duplica em re-runs)
 3. **Avaliação de feedback** — decide se precisa pedir novo feedback à Vita (ver seção Feedback)
 4. **Render** — gera `output/diarias.txt` em formato WhatsApp
@@ -228,7 +229,8 @@ Use `suggest-daily` quando o usuário perguntar "o que fazer hoje?" ou parecer s
 check-wip         # quantas tasks estão em [~] e se pode iniciar mais
 sync-fixed        # injeta rotina.md do dia (chamado automaticamente pelo pipeline)
 store-feedback    # salva feedback da Vita (ver seção Feedback)
-rollover          # rollover semanal manual (chamado automaticamente aos domingos)
+rollover          # rollover semanal manual (automático no pipeline)
+ledger-status     # diagnóstico do estado do ledger (semana atual, anterior, issues)
 ```
 
 ### Render (único que aceita `--format`)
@@ -267,6 +269,35 @@ python3 scripts/cli.py execution-history \
 Gera relatório de padrões de execução lido pela Vita no Session Start para calibrar planejamento. Métricas: taxa de conclusão semanal, análise por origem (rotina/manual/brain_dump), top 5 tasks mais adiadas, desempenho por dia da semana.
 
 O arquivo usa marcadores `<!-- BEGIN METRICS -->` / `<!-- END METRICS -->` — re-runs atualizam só as métricas, preservando a seção `## Observações` (anotações manuais).
+
+**Subproduto:** também gera `data/word_weights.json` com pesos por palavra para detecção inteligente de duplicatas (ver seção Detecção de Duplicatas).
+
+### Diagnóstico do ledger
+
+```bash
+python3 scripts/cli.py ledger-status \
+  --today DD/MM --year YYYY --data-dir data
+```
+
+Retorna JSON com estado de saúde: semana atual/anterior, tasks abertas, rollover pendente, issues detectados. Use quando suspeitar de problemas no ledger (tasks sumindo, rollover perdido, etc.).
+
+### Detecção de duplicatas
+
+O `ledger-add` detecta automaticamente tasks similares e retorna `warning.type == "duplicate_suspect"` quando encontra.
+
+**Sem pesos (fallback):** comparação por intersecção simples de palavras (>= 50%).
+
+**Com pesos (word_weights.json):** similaridade ponderada usando 3 fatores por palavra:
+
+| Fator | O que mede | Efeito |
+|-------|-----------|--------|
+| Distintividade | Raridade em tasks completadas (log IDF) | Palavras genéricas pesam menos |
+| Evitação | Taxa de conclusão + postpone_count | Palavras de tasks evitadas pesam mais |
+| Tempo de resolução | Horas entre criação e conclusão | Palavras de tasks lentas pesam mais |
+
+`peso(palavra) = distintividade x evitacao x resolucao`
+
+Os pesos são gerados semanalmente pelo `execution-history` a partir do histórico completo do ledger. Se `word_weights.json` não existir, todas as palavras têm peso 1.0 (comportamento original).
 
 ### Legado (não usar)
 
@@ -319,7 +350,7 @@ Se já houver 2 em andamento, `ledger-start` bloqueia com mensagem: *"Você já 
 | IDs de dump | `YYYYMMDD_dump_NNN` (sequencial por dia) |
 | WIP padrão | 2 tasks em `[~]` |
 | Limpeza D+1 | Tasks concluídas/canceladas só aparecem no render **no próprio dia** — somem a partir do dia seguinte |
-| Rollover | Automático aos domingos quando o pipeline roda |
+| Rollover | Automático no primeiro pipeline da semana nova (qualquer dia) |
 
 ## Testes
 
@@ -342,5 +373,6 @@ A flag `VITA_TEST_MODE=1` ativa proteção anti-contaminação: se algum teste t
 | `scripts/render.py` | Montagem do TaskFile a partir do ledger |
 | `scripts/formatter_whatsapp.py` | Formato WhatsApp (padrão) |
 | `scripts/formatter.py` | Formato markdown (opcional) |
-| `scripts/execution_history.py` | Relatório de padrões de execução |
+| `scripts/execution_history.py` | Relatório de padrões de execução + word weights |
+| `scripts/rollover.py` | Transição semanal de ledger |
 | `scripts/test_core.py` | Suíte de testes |
