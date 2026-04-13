@@ -38,6 +38,7 @@ try:
         calculate_urgency,
     )
     from .suggester import explain_suggestion, suggest_135
+    from .execution_history import build_execution_history, render_markdown as render_history_markdown, write_history_file
 except ImportError:
     from formatter import format_task_file
     from formatter_whatsapp import format_task_file_whatsapp
@@ -69,6 +70,7 @@ except ImportError:
         calculate_urgency,
     )
     from suggester import explain_suggestion, suggest_135
+    from execution_history import build_execution_history, render_markdown as render_history_markdown, write_history_file
 
 
 CLI_PATH = Path(__file__).parent / 'cli.py'
@@ -504,6 +506,190 @@ def test_cli_check_wip():
         print('✓ test_cli_check_wip')
 
 
+def _create_test_ledger_record(
+    task_id: str,
+    description: str,
+    status: str = "[ ]",
+    source: str = "manual",
+    created_at: str = "2026-04-06T09:00:00",
+    first_added_date: str = "2026-04-06",
+    postpone_count: int = 0,
+    completed_at: str | None = None,
+) -> dict:
+    """Helper: cria um registro de task para testes de execution_history."""
+    record = {
+        "type": "task",
+        "id": task_id,
+        "_operation": "create",
+        "status": status,
+        "priority": "🟡",
+        "description": description,
+        "source": source,
+        "created_at": created_at,
+        "first_added_date": first_added_date,
+        "postpone_count": postpone_count,
+    }
+    if completed_at:
+        record["completed_at"] = completed_at
+    return record
+
+
+def _write_jsonl(path: Path, records: list[dict]) -> None:
+    """Helper: escreve registros como JSONL."""
+    import json as _json
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        for r in records:
+            f.write(_json.dumps(r, ensure_ascii=False) + "\n")
+
+
+def test_execution_history_basic():
+    """build_execution_history retorna métricas corretas para dados conhecidos."""
+    from ledger import get_ledger_filename, get_week_start
+
+    today = date(2026, 4, 8)  # quarta-feira
+    ws = get_week_start(today)  # 05/04 (domingo)
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+
+        records = [
+            _create_test_ledger_record("t1", "Task A", "[x]", "rotina", f"{ws}T09:00:00", str(ws), completed_at=f"{ws}T17:00:00"),
+            _create_test_ledger_record("t2", "Task B", "[x]", "manual", f"{ws}T09:00:00", str(ws), completed_at=f"{ws}T18:00:00"),
+            _create_test_ledger_record("t3", "Task C", "[ ]", "rotina", f"{ws}T09:00:00", str(ws)),
+            _create_test_ledger_record("t4", "Task D", "[ ]", "manual", f"{ws}T09:00:00", "2026-03-15", postpone_count=3),
+        ]
+        _write_jsonl(ledger_file, records)
+
+        history = build_execution_history(data_dir, today, weeks=1)
+
+        # Completion rate: 2 de 4 = 50%
+        assert history["weeks_analyzed"] == 1
+        assert len(history["completion_rate"]["weekly"]) == 1
+        week = history["completion_rate"]["weekly"][0]
+        assert week["completed"] == 2
+        assert week["total"] == 4
+        assert week["rate"] == 0.5
+
+        # By source
+        by_source = {s["source"]: s for s in history["by_source"]}
+        assert by_source["rotina"]["created"] == 2
+        assert by_source["rotina"]["completed"] == 1
+        assert by_source["manual"]["created"] == 2
+        assert by_source["manual"]["completed"] == 1
+
+        # Top postponed: só Task D (postpone_count=3)
+        assert len(history["top_postponed"]) == 1
+        assert history["top_postponed"][0]["description"] == "Task D"
+        assert history["top_postponed"][0]["postpone_count"] == 3
+
+        # By weekday: todas criadas no domingo (ws é domingo)
+        by_day = {d["day"]: d for d in history["by_weekday"]}
+        assert by_day["Domingo"]["sample"] == 4
+        assert by_day["Domingo"]["rate"] == 0.5
+
+        print('✓ test_execution_history_basic')
+
+
+def test_execution_history_render_markdown():
+    """render_markdown gera markdown com seções esperadas."""
+    history = {
+        "generated_at": "08/04/2026",
+        "weeks_analyzed": 1,
+        "completion_rate": {
+            "weekly": [{"label": "Atual (05/04-11/04)", "completed": 3, "total": 5, "rate": 0.6}],
+            "average": 0.6,
+        },
+        "by_source": [
+            {"source": "manual", "created": 5, "completed": 3, "rate": 0.6},
+        ],
+        "top_postponed": [
+            {"description": "Ligar dentista", "postpone_count": 4, "days_in_list": 20},
+        ],
+        "by_weekday": [
+            {"day": "Domingo", "rate": 0.4, "sample": 5},
+        ],
+    }
+    md = render_history_markdown(history)
+    assert "Taxa de Conclusão Semanal" in md
+    assert "Por Origem" in md
+    assert "Tasks Mais Adiadas" in md
+    assert "Desempenho por Dia da Semana" in md
+    assert "Ligar dentista" in md
+    assert "60%" in md  # average
+    print('✓ test_execution_history_render_markdown')
+
+
+def test_execution_history_write_preserves_observations():
+    """write_history_file preserva seção de observações manuais."""
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        output = Path(tmp) / "historico-execucao.md"
+
+        # Primeira escrita — cria do zero
+        write_history_file(output, "Metrics v1\n")
+        content = output.read_text(encoding="utf-8")
+        assert "Metrics v1" in content
+        assert "## Observações" in content
+
+        # Adiciona anotação manual na seção de observações
+        content = content.replace(
+            "<!-- Espaço para anotações manuais. Não será sobrescrito pelo CLI. -->",
+            "Nota importante do usuário",
+        )
+        output.write_text(content, encoding="utf-8")
+
+        # Segunda escrita — atualiza métricas, preserva observações
+        write_history_file(output, "Metrics v2\n")
+        updated = output.read_text(encoding="utf-8")
+        assert "Metrics v2" in updated
+        assert "Metrics v1" not in updated
+        assert "Nota importante do usuário" in updated
+
+        print('✓ test_execution_history_write_preserves_observations')
+
+
+def test_execution_history_cli():
+    """CLI execution-history gera arquivo e retorna JSON ok."""
+    from ledger import get_ledger_filename, get_week_start
+
+    today = date(2026, 4, 8)
+    ws = get_week_start(today)
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        records = [
+            _create_test_ledger_record("t1", "Task CLI", "[x]", "manual", f"{ws}T09:00:00", str(ws), completed_at=f"{ws}T17:00:00"),
+        ]
+        _write_jsonl(ledger_file, records)
+
+        output_path = Path(tmp) / "historico-execucao.md"
+        result = subprocess.run(
+            [
+                sys.executable, str(CLI_PATH), 'execution-history',
+                '--today', '08/04',
+                '--year', '2026',
+                '--data-dir', str(data_dir),
+                '--output', str(output_path),
+                '--weeks', '1',
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        payload = json.loads(result.stdout)
+        assert payload['ok'] is True
+        assert payload['weeks_analyzed'] == 1
+        assert output_path.exists()
+
+        content = output_path.read_text(encoding="utf-8")
+        assert "Task CLI" not in content  # task description doesn't appear in general metrics
+        assert "Taxa de Conclusão Semanal" in content
+
+        print('✓ test_execution_history_cli')
+
+
 def run_all_tests():
     """Executa todos os testes."""
     print('\n=== Testes vita-task-manager ===\n')
@@ -526,6 +712,10 @@ def run_all_tests():
     test_whatsapp_format()
     test_cli_render_whatsapp()
     test_cli_check_wip()
+    test_execution_history_basic()
+    test_execution_history_render_markdown()
+    test_execution_history_write_preserves_observations()
+    test_execution_history_cli()
     print('\n✓ Todos os testes passaram!\n')
 
 

@@ -37,6 +37,7 @@ try:
     )
     from .validator import validate_task_file
     from .weekly_summary import build_weekly_summary, render_weekly_summary_markdown
+    from .execution_history import build_execution_history, render_markdown as render_history_markdown, write_history_file
 except ImportError:
     from feedback_input import build_daily_summary
     from ledger import get_all_active_tasks, get_current_task_state, get_ledger_path, load_ledger, make_task_id
@@ -68,6 +69,7 @@ except ImportError:
     )
     from validator import validate_task_file
     from weekly_summary import build_weekly_summary, render_weekly_summary_markdown
+    from execution_history import build_execution_history, render_markdown as render_history_markdown, write_history_file
 
 
 def _compact(value: Any) -> Any:
@@ -488,6 +490,21 @@ def cmd_explain_task(args) -> int:
     return 0
 
 
+def cmd_execution_history(args) -> int:
+    data_dir = Path(args.data_dir)
+    today = _ddmm_to_date(args.today, args.year)
+    weeks = args.weeks
+
+    history = build_execution_history(data_dir, today, weeks)
+    md = render_history_markdown(history)
+
+    output_path = Path(args.output)
+    write_history_file(output_path, md)
+
+    _emit({"ok": True, "output": str(output_path), "weeks_analyzed": weeks})
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="CLI do Vita Task Manager.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -689,6 +706,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--year", type=int, required=True)
     p.add_argument("--data-dir", required=True)
     p.set_defaults(func=cmd_explain_task)
+
+    p = sub.add_parser("execution-history", help="Gera relatório de padrões de execução")
+    p.add_argument("--today", required=True)
+    p.add_argument("--year", type=int, required=True)
+    p.add_argument("--data-dir", required=True)
+    p.add_argument("--output", required=True, help="Caminho do arquivo de saída (.md)")
+    p.add_argument("--weeks", type=int, default=4, help="Semanas para analisar (padrão: 4)")
+    p.set_defaults(func=cmd_execution_history)
 
     return parser
 
