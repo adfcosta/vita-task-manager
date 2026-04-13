@@ -848,6 +848,91 @@ def test_ledger_update_cli():
         print('✓ test_ledger_update_cli')
 
 
+def test_duplicate_detection_warns():
+    """add_task emite warning quando descrição é similar a task aberta."""
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        ledger_path = get_ledger_path(date(2026, 4, 12), 2026, data_dir)
+
+        add_task(ledger_path, 'Encontrar contrato de aluguel', '🟡', '12/04', 2026, context='juridico')
+
+        # Descrição similar (subset de palavras)
+        result = add_task(ledger_path, 'Encontrar contrato', '🟡', '12/04', 2026, context='juridico residencial')
+        assert result['ok'] is True
+        assert 'warning' in result, "Deveria emitir warning de duplicata"
+        assert result['warning']['type'] == 'duplicate_suspect'
+        assert len(result['warning']['similar_to']) >= 1
+        assert result['warning']['similar_to'][0]['description'] == 'Encontrar contrato de aluguel'
+
+        print('✓ test_duplicate_detection_warns')
+
+
+def test_duplicate_detection_allow_flag():
+    """add_task com allow_duplicate=True suprime warning."""
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        ledger_path = get_ledger_path(date(2026, 4, 12), 2026, data_dir)
+
+        add_task(ledger_path, 'Ligar para João', '🟡', '12/04', 2026)
+
+        result = add_task(ledger_path, 'Ligar para João', '🟡', '12/04', 2026, allow_duplicate=True)
+        assert result['ok'] is True
+        assert 'warning' not in result
+
+        print('✓ test_duplicate_detection_allow_flag')
+
+
+def test_duplicate_detection_no_false_positive():
+    """add_task não emite warning para tasks totalmente diferentes."""
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        ledger_path = get_ledger_path(date(2026, 4, 12), 2026, data_dir)
+
+        add_task(ledger_path, 'Encontrar contrato de aluguel', '🟡', '12/04', 2026)
+
+        # Descrição totalmente diferente
+        result = add_task(ledger_path, 'Comprar café', '🟢', '12/04', 2026)
+        assert result['ok'] is True
+        assert 'warning' not in result
+
+        print('✓ test_duplicate_detection_no_false_positive')
+
+
+def test_duplicate_detection_accent_normalization():
+    """Detecção normaliza acentos: 'jurídico' e 'juridico' são iguais."""
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        ledger_path = get_ledger_path(date(2026, 4, 12), 2026, data_dir)
+
+        add_task(ledger_path, 'Avaliar contrato de aluguel', '🟡', '12/04', 2026)
+
+        # Mesma task mas com acento diferente e palavras a menos
+        result = add_task(ledger_path, 'Avaliar contrato', '🟡', '12/04', 2026)
+        assert result['ok'] is True
+        assert 'warning' in result, (
+            "Deveria detectar 'Avaliar contrato' como similar a 'Avaliar contrato de aluguel'"
+        )
+
+        print('✓ test_duplicate_detection_accent_normalization')
+
+
+def test_duplicate_detection_ignores_completed():
+    """Detecção ignora tasks já concluídas."""
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        ledger_path = get_ledger_path(date(2026, 4, 12), 2026, data_dir)
+
+        created = add_task(ledger_path, 'Encontrar contrato', '🟡', '12/04', 2026)
+        complete_task(ledger_path, created['task_id'], '12/04')
+
+        # Mesma descrição, mas a anterior foi concluída
+        result = add_task(ledger_path, 'Encontrar contrato', '🟡', '12/04', 2026)
+        assert result['ok'] is True
+        assert 'warning' not in result, "Não deveria alertar sobre task já concluída"
+
+        print('✓ test_duplicate_detection_ignores_completed')
+
+
 def run_all_tests():
     """Executa todos os testes."""
     print('\n=== Testes vita-task-manager ===\n')
@@ -880,6 +965,11 @@ def run_all_tests():
     test_ledger_update_not_found()
     test_ledger_update_no_fields()
     test_ledger_update_cli()
+    test_duplicate_detection_warns()
+    test_duplicate_detection_allow_flag()
+    test_duplicate_detection_no_false_positive()
+    test_duplicate_detection_accent_normalization()
+    test_duplicate_detection_ignores_completed()
     print('\n✓ Todos os testes passaram!\n')
 
 
