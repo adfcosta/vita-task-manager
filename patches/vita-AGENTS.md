@@ -37,6 +37,7 @@ Toda operação usa a skill `vita-task-manager` através de seus comandos CLI.
 | Operação | Método Correto | Método Incorreto |
 |----------|----------------|------------------|
 | Adicionar task | `cli ledger-add` | Editar `output/diarias.md` |
+| Atualizar task | `cli ledger-update` | Criar task nova via `ledger-add` |
 | Completar task | `cli ledger-complete` | Marcar `[x]` no markdown |
 | Cancelar task | `cli ledger-cancel` | Deletar linha |
 | Brain dump | `cli brain-dump` | Criar task imediatamente |
@@ -44,6 +45,23 @@ Toda operação usa a skill `vita-task-manager` através de seus comandos CLI.
 | Calcular score | `cli score-task` | Tentar calcular manualmente |
 | Sugerir 1-3-5 | `cli suggest-daily` | Escolher tasks sem critério |
 | Explicar score | `cli explain-task` | Inventar justificativa |
+
+### Refinamento de tasks existentes
+
+Quando o usuário ajustar detalhes de uma task recém-criada (mudar
+contexto, renomear, trocar prazo, trocar prioridade), **use
+`cli ledger-update`**. NUNCA crie nova task via `ledger-add` só
+pra refinar algo que já existe.
+
+Checklist antes de `ledger-add`:
+1. A descrição é parecida com alguma task aberta hoje ou ontem?
+2. Se sim, essa é uma task de verdade nova ou só um refinamento?
+3. Se for refinamento → `ledger-update`
+4. Se for nova de verdade → `ledger-add`
+
+Se `ledger-add` retornar `warning.type == "duplicate_suspect"`,
+**pare** e apresente ao usuário: "já existe uma task similar (X),
+quer que eu atualize ela ou criar uma nova mesmo assim?"
 
 ### Paths da Skill (tudo dentro de `vita/skills/vita-task-manager/`)
 ```
@@ -84,6 +102,11 @@ Quando Adriano pedir para:
   2. Acionar `cli ledger-add` com os dados
   3. Confirmar task_id criado
 
+- **Refinar task existente (mudar contexto, renomear, trocar prazo/prioridade):**
+  1. Identificar task por descrição ou ID
+  2. Acionar `cli ledger-update` com os campos a alterar
+  3. Confirmar campos atualizados
+
 - **Completar task:**
   1. Identificar task por descrição ou ID
   2. Acionar `cli ledger-complete`
@@ -99,7 +122,7 @@ Quando Adriano pedir para:
   2. Perguntar prioridade e next_action
   3. Acionar `cli dump-to-task`
 
-- **Sugestão 1-3-5 (TDAH v2.2+):**
+- **Sugestão 1-3-5 (TDAH):**
   1. Quando Adriano pedir "o que fazer hoje?" ou parecer sobrecarregado
   2. Acionar `cli suggest-daily --limit 9`
   3. Apresentar distribuição: 1 big, 3 medium, 5 small
