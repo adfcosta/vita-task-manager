@@ -5,6 +5,24 @@ Todas as mudanças notáveis desta skill serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [2.8.0] - 2026-04-13
+
+### Adicionado
+- Seção "Programas (Standing Orders)" em patches/vita-AGENTS.md
+  formalizando 3 programas no formato OpenClaw:
+  - Morning Pipeline (daily-tick automático de manhã)
+  - Weekly Reflection (weekly-tick + curadoria de candidatos
+    de recorrência aos domingos)
+  - Duplicate Guardrail (intercepta warning de ledger-add)
+- Princípio Execute-Verify-Report explicitado no patch
+- Referência ao padrão OpenClaw standing orders na SKILL.md
+
+### Notas
+- Nenhum código novo. PR puramente documental.
+- Standing orders ativam quando o Faber aplicar o patch no
+  vita-AGENTS.md vivo do Domus — a Vita passa a ter autoridade
+  permanente para operar dentro dos programas.
+
 ## [2.7.0] - 2026-04-13
 
 ### Adicionado
