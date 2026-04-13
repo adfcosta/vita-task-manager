@@ -543,15 +543,20 @@ def sync_fixed_agenda(
     today_ddmm: str,
     year: int,
 ) -> dict[str, Any]:
-    """Sincroniza rotina do dia no ledger.
+    """Sincroniza rotina do dia e regras de recorrência no ledger.
 
-    Injeta entradas de rotina.md no ledger do dia atual.
-    Deduplica por hash(description + time_range) para maior robustez.
+    Injeta entradas de rotina.md e tasks de recurrence_rules ativas
+    no ledger do dia atual. Deduplica por hash(description + time_range).
     """
     try:
         from .fixed_parser import parse_rotina, get_entries_for_date
     except ImportError:
         from fixed_parser import parse_rotina, get_entries_for_date
+
+    try:
+        from .recurrence import get_active_recurrence_rules, get_rules_for_weekday
+    except ImportError:
+        from recurrence import get_active_recurrence_rules, get_rules_for_weekday
 
     created_date = _date_from_ddmm(today_ddmm, year)
 
@@ -562,21 +567,21 @@ def sync_fixed_agenda(
     # Carrega ledger para deduplicação
     ledger = load_ledger(ledger_path)
 
-    # Constrói set de hashes existentes (apenas de rotina)
+    # Constrói set de hashes existentes (rotina + recurrence)
     existing_hashes = {
         _entry_hash(r.get("description", ""), r.get("context"))
         for r in ledger
-        if r.get("type") == "task" and r.get("source") == "rotina"
+        if r.get("type") == "task" and r.get("source") in ("rotina", "recurrence")
     }
 
-    inserted = []
-    skipped = []
+    rotina_inserted = []
+    rotina_skipped = []
 
     for entry in today_entries:
         entry_hash = _entry_hash(entry.description, entry.time_range)
 
         if entry_hash in existing_hashes:
-            skipped.append(entry.description)
+            rotina_skipped.append(entry.description)
             continue
 
         # Cria task
@@ -591,14 +596,60 @@ def sync_fixed_agenda(
         )
 
         if result["ok"]:
-            inserted.append(entry.description)
+            rotina_inserted.append(entry.description)
             existing_hashes.add(entry_hash)
+
+    # Injeta tasks de regras de recorrência ativas
+    recurrence_inserted = []
+    recurrence_skipped = []
+
+    active_rules = get_active_recurrence_rules(ledger)
+    weekday = created_date.weekday()  # 0=Monday ... 6=Sunday
+    todays_rules = get_rules_for_weekday(active_rules, weekday)
+
+    for rule in todays_rules:
+        desc = rule.get("description", "")
+        time_range = rule.get("time_range")
+        entry_hash = _entry_hash(desc, time_range)
+
+        if entry_hash in existing_hashes:
+            recurrence_skipped.append(desc)
+            continue
+
+        result = add_task(
+            ledger_path=ledger_path,
+            description=desc,
+            priority=rule.get("priority", "🟡"),
+            today_ddmm=today_ddmm,
+            year=year,
+            source="recurrence",
+            context=time_range,
+            allow_duplicate=True,
+        )
+
+        if result["ok"]:
+            recurrence_inserted.append(desc)
+            existing_hashes.add(entry_hash)
+
+    # Retrocompatível: inserted/skipped agregam tudo
+    all_inserted = rotina_inserted + recurrence_inserted
+    all_skipped = rotina_skipped + recurrence_skipped
 
     return {
         "ok": True,
         "action": "sync_fixed",
-        "inserted": inserted,
-        "skipped": skipped,
+        "inserted": all_inserted,
+        "skipped": all_skipped,
+        "sources": {
+            "rotina": {
+                "inserted": len(rotina_inserted),
+                "skipped": len(rotina_skipped),
+            },
+            "recurrence": {
+                "inserted": len(recurrence_inserted),
+                "skipped": len(recurrence_skipped),
+            },
+        },
     }
 
 

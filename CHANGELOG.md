@@ -5,6 +5,17 @@ Todas as mudanças notáveis desta skill serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [2.6.0] - 2026-04-13
+
+### Adicionado
+- **Detecção de recorrência:** `recurrence-detect` analisa histórico do ledger e identifica tasks que se repetem com frequência, sugerindo padrões daily/weekly com horário predominante
+- **Regras de recorrência:** `recurrence-activate` e `recurrence-deactivate` para criar/desativar regras append-only no ledger (`type="recurrence_rule"`)
+- **`recurrence-list`:** Lista regras de recorrência ativas
+- **Injeção automática:** `sync-fixed` (via pipeline) agora injeta tasks tanto de `rotina.md` quanto de regras de recorrência ativas, respeitando dia da semana e deduplicando por hash
+- **`scripts/recurrence.py`:** Novo módulo com 8 funções para detecção de padrões e gestão de regras
+- Retorno de `sync_fixed_agenda` agora inclui `sources` com breakdown por `rotina` e `recurrence`
+- 14 novos testes cobrindo detecção de padrões, ativação/desativação de regras, filtragem por weekday, injeção via sync, e CLI end-to-end (56 testes total)
+
 ## [2.5.0] - 2026-04-13
 
 ### Adicionado

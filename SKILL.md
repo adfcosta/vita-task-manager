@@ -7,7 +7,7 @@ description: Gerenciar tarefas pessoais via ledger JSONL e CLI dedicada.
 
 Sistema de tasks pessoais com **ledger JSONL append-only** como fonte de verdade, otimizado para TDAH.
 
-**Versão:** 2.5.0
+**Versão:** 2.6.0
 
 ## Regra de Ouro
 
@@ -299,6 +299,50 @@ O `ledger-add` detecta automaticamente tasks similares e retorna `warning.type =
 
 Os pesos são gerados semanalmente pelo `execution-history` a partir do histórico completo do ledger. Se `word_weights.json` não existir, todas as palavras têm peso 1.0 (comportamento original).
 
+### Recorrência
+
+Detecta padrões de recorrência no histórico e permite criar regras automáticas.
+
+```bash
+# Detectar candidatos (analisa últimas 4 semanas)
+python3 scripts/cli.py recurrence-detect \
+  --today DD/MM --year YYYY --data-dir data \
+  --min-occurrences 5 --weeks 4
+
+# Ativar regra (diária ou semanal)
+python3 scripts/cli.py recurrence-activate \
+  --description "Tomar remédios" --pattern daily \
+  --priority 🟢 --time-range 08:00 \
+  --today DD/MM --year YYYY --data-dir data
+
+# Ativar regra semanal (seg/qua/sex)
+python3 scripts/cli.py recurrence-activate \
+  --description "Estudar inglês" --pattern weekly \
+  --weekdays "[0,2,4]" --priority 🟡 \
+  --today DD/MM --year YYYY --data-dir data
+
+# Listar regras ativas
+python3 scripts/cli.py recurrence-list \
+  --today DD/MM --year YYYY --data-dir data
+
+# Desativar regra (append-only, não destrutivo)
+python3 scripts/cli.py recurrence-deactivate \
+  --rule-id rule_20260413_tomar_remedios \
+  --reason "Mudou a rotina" \
+  --today DD/MM --year YYYY --data-dir data
+```
+
+**Como funciona:**
+
+- `recurrence-detect` analisa tasks concluídas no período e detecta padrões:
+  - **daily**: task aparece em >= 5 dias diferentes da semana
+  - **weekly**: 1-3 dias concentram >= 80% das ocorrências
+  - Detecta horário predominante se >= 60% das ocorrências têm mesmo HH:MM
+  - Ignora tasks de `source=rotina` e tasks que já possuem regra ativa
+- Regras são armazenadas no ledger como `type="recurrence_rule"` (append-only)
+- `sync-fixed` (chamado pelo pipeline) injeta automaticamente tasks das regras ativas, respeitando dia da semana e deduplicando por hash
+- IDs de regra: `rule_YYYYMMDD_slug[_HHMM]` com sufixo `_2`/`_3` se colidir
+
 ### Legado (não usar)
 
 `validate`, `summary`, `add`, `progress`, `complete`, `cancel`, `resort` — operam no formato markdown antigo (pré-ledger). Mantidos apenas por compatibilidade. **A Vita não deve invocar esses.**
@@ -348,6 +392,7 @@ Se já houver 2 em andamento, `ledger-start` bloqueia com mensagem: *"Você já 
 | Semana | Domingo → sábado, timezone `America/Maceio` (UTC-3) |
 | IDs de task | `YYYYMMDD_slug`, com sufixo `_2`, `_3` se colidir |
 | IDs de dump | `YYYYMMDD_dump_NNN` (sequencial por dia) |
+| IDs de regra | `rule_YYYYMMDD_slug[_HHMM]`, com sufixo `_2`, `_3` se colidir |
 | WIP padrão | 2 tasks em `[~]` |
 | Limpeza D+1 | Tasks concluídas/canceladas só aparecem no render **no próprio dia** — somem a partir do dia seguinte |
 | Rollover | Automático no primeiro pipeline da semana nova (qualquer dia) |
@@ -374,5 +419,6 @@ A flag `VITA_TEST_MODE=1` ativa proteção anti-contaminação: se algum teste t
 | `scripts/formatter_whatsapp.py` | Formato WhatsApp (padrão) |
 | `scripts/formatter.py` | Formato markdown (opcional) |
 | `scripts/execution_history.py` | Relatório de padrões de execução + word weights |
+| `scripts/recurrence.py` | Detecção de padrões e regras de recorrência |
 | `scripts/rollover.py` | Transição semanal de ledger |
 | `scripts/test_core.py` | Suíte de testes |

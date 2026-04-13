@@ -39,6 +39,12 @@ try:
     from .validator import validate_task_file
     from .weekly_summary import build_weekly_summary, render_weekly_summary_markdown
     from .execution_history import build_execution_history, build_word_weights, load_word_weights, render_markdown as render_history_markdown, write_history_file, write_word_weights
+    from .recurrence import (
+        activate_recurrence_rule,
+        deactivate_recurrence_rule,
+        detect_recurrence_candidates,
+        get_active_recurrence_rules,
+    )
 except ImportError:
     from feedback_input import build_daily_summary
     from ledger import get_all_active_tasks, get_current_task_state, get_ledger_path, load_ledger, make_task_id
@@ -72,6 +78,12 @@ except ImportError:
     from validator import validate_task_file
     from weekly_summary import build_weekly_summary, render_weekly_summary_markdown
     from execution_history import build_execution_history, build_word_weights, load_word_weights, render_markdown as render_history_markdown, write_history_file, write_word_weights
+    from recurrence import (
+        activate_recurrence_rule,
+        deactivate_recurrence_rule,
+        detect_recurrence_candidates,
+        get_active_recurrence_rules,
+    )
 
 
 def _compact(value: Any) -> Any:
@@ -656,6 +668,74 @@ def cmd_execution_history(args) -> int:
     return 0
 
 
+def cmd_recurrence_detect(args) -> int:
+    """Detecta candidatos a recorrência no histórico."""
+    data_dir = Path(args.data_dir)
+    today = _ddmm_to_date(args.today, args.year)
+
+    candidates = detect_recurrence_candidates(
+        data_dir=data_dir,
+        today=today,
+        min_occurrences=args.min_occurrences,
+        lookback_weeks=args.weeks,
+    )
+
+    _emit({
+        "ok": True,
+        "candidates": candidates,
+        "count": len(candidates),
+    })
+    return 0
+
+
+def cmd_recurrence_activate(args) -> int:
+    """Ativa uma regra de recorrência."""
+    ledger_path = get_ledger_path(args.today, args.year, Path(args.data_dir))
+    weekdays = json.loads(args.weekdays) if args.weekdays else []
+
+    result = activate_recurrence_rule(
+        ledger_path=ledger_path,
+        description=args.description,
+        pattern=args.pattern,
+        weekdays=weekdays,
+        priority=args.priority,
+        time_range=args.time_range,
+        today_ddmm=args.today,
+        year=args.year,
+        source_task_ids=json.loads(args.source_task_ids) if args.source_task_ids else None,
+    )
+    _emit(result)
+    return 0 if result["ok"] else 1
+
+
+def cmd_recurrence_deactivate(args) -> int:
+    """Desativa uma regra de recorrência."""
+    ledger_path = get_ledger_path(args.today, args.year, Path(args.data_dir))
+
+    result = deactivate_recurrence_rule(
+        ledger_path=ledger_path,
+        rule_id=args.rule_id,
+        reason=args.reason,
+        today_ddmm=args.today,
+    )
+    _emit(result)
+    return 0 if result["ok"] else 1
+
+
+def cmd_recurrence_list(args) -> int:
+    """Lista regras de recorrência ativas."""
+    ledger_path = get_ledger_path(args.today, args.year, Path(args.data_dir))
+    ledger = load_ledger(ledger_path)
+    rules = get_active_recurrence_rules(ledger)
+
+    _emit({
+        "ok": True,
+        "rules": rules,
+        "count": len(rules),
+    })
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="CLI do Vita Task Manager.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -884,6 +964,40 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--output", required=True, help="Caminho do arquivo de saída (.md)")
     p.add_argument("--weeks", type=int, default=4, help="Semanas para analisar (padrão: 4)")
     p.set_defaults(func=cmd_execution_history)
+
+    p = sub.add_parser("recurrence-detect", help="Detecta candidatos a recorrência")
+    p.add_argument("--today", required=True)
+    p.add_argument("--year", type=int, required=True)
+    p.add_argument("--data-dir", required=True)
+    p.add_argument("--min-occurrences", type=int, default=5, help="Mínimo de ocorrências (padrão: 5)")
+    p.add_argument("--weeks", type=int, default=4, help="Semanas de lookback (padrão: 4)")
+    p.set_defaults(func=cmd_recurrence_detect)
+
+    p = sub.add_parser("recurrence-activate", help="Ativa regra de recorrência")
+    p.add_argument("--description", required=True, help="Descrição da task recorrente")
+    p.add_argument("--pattern", required=True, choices=["daily", "weekly"], help="Padrão: daily ou weekly")
+    p.add_argument("--weekdays", help="JSON array de weekdays (0=Mon..6=Sun), ex: [0,2,4]")
+    p.add_argument("--priority", required=True, choices=["🔴", "🟡", "🟢"])
+    p.add_argument("--time-range", help="Horário (HH:MM)")
+    p.add_argument("--source-task-ids", help="JSON array de task_ids originais")
+    p.add_argument("--today", required=True)
+    p.add_argument("--year", type=int, required=True)
+    p.add_argument("--data-dir", required=True)
+    p.set_defaults(func=cmd_recurrence_activate)
+
+    p = sub.add_parser("recurrence-deactivate", help="Desativa regra de recorrência")
+    p.add_argument("--rule-id", required=True, help="ID da regra")
+    p.add_argument("--reason", required=True, help="Motivo da desativação")
+    p.add_argument("--today", required=True)
+    p.add_argument("--year", type=int, required=True)
+    p.add_argument("--data-dir", required=True)
+    p.set_defaults(func=cmd_recurrence_deactivate)
+
+    p = sub.add_parser("recurrence-list", help="Lista regras de recorrência ativas")
+    p.add_argument("--today", required=True)
+    p.add_argument("--year", type=int, required=True)
+    p.add_argument("--data-dir", required=True)
+    p.set_defaults(func=cmd_recurrence_list)
 
     return parser
 

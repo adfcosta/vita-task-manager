@@ -41,6 +41,15 @@ try:
     from .suggester import explain_suggestion, suggest_135
     from .execution_history import build_execution_history, build_word_weights, load_word_weights, render_markdown as render_history_markdown, write_history_file, write_word_weights
     from .rollover import perform_rollover
+    from .recurrence import (
+        activate_recurrence_rule,
+        deactivate_recurrence_rule,
+        detect_recurrence_candidates,
+        get_active_recurrence_rules,
+        get_rules_for_weekday,
+        _detect_pattern,
+        _detect_time_mode,
+    )
 except ImportError:
     from formatter import format_task_file
     from formatter_whatsapp import format_task_file_whatsapp
@@ -75,6 +84,15 @@ except ImportError:
     from suggester import explain_suggestion, suggest_135
     from execution_history import build_execution_history, build_word_weights, load_word_weights, render_markdown as render_history_markdown, write_history_file, write_word_weights
     from rollover import perform_rollover
+    from recurrence import (
+        activate_recurrence_rule,
+        deactivate_recurrence_rule,
+        detect_recurrence_candidates,
+        get_active_recurrence_rules,
+        get_rules_for_weekday,
+        _detect_pattern,
+        _detect_time_mode,
+    )
 
 
 CLI_PATH = Path(__file__).parent / 'cli.py'
@@ -1210,6 +1228,469 @@ def test_ledger_status_cli():
         print("✓ test_ledger_status_cli")
 
 
+def test_detect_recurrence_daily_pattern():
+    """_detect_pattern identifica padrão diário (>= 5 dias diferentes)."""
+    from datetime import date
+
+    # 7 datas cobrindo 5+ dias diferentes da semana
+    dates = [
+        date(2026, 4, 6),   # Monday
+        date(2026, 4, 7),   # Tuesday
+        date(2026, 4, 8),   # Wednesday
+        date(2026, 4, 9),   # Thursday
+        date(2026, 4, 10),  # Friday
+        date(2026, 4, 11),  # Saturday
+        date(2026, 4, 12),  # Sunday
+    ]
+    pattern, weekdays = _detect_pattern(dates)
+    assert pattern == "daily", f"Esperava 'daily', recebeu '{pattern}'"
+    assert weekdays == [0, 1, 2, 3, 4, 5, 6]
+    print("✓ test_detect_recurrence_daily_pattern")
+
+
+def test_detect_recurrence_weekly_pattern():
+    """_detect_pattern identifica padrão semanal (1-3 dias concentram >= 80%)."""
+    from datetime import date
+
+    # Sempre segunda-feira (weekday=0)
+    dates = [
+        date(2026, 3, 16),  # Monday
+        date(2026, 3, 23),  # Monday
+        date(2026, 3, 30),  # Monday
+        date(2026, 4, 6),   # Monday
+        date(2026, 4, 8),   # Wednesday (outlier)
+    ]
+    pattern, weekdays = _detect_pattern(dates)
+    assert pattern == "weekly", f"Esperava 'weekly', recebeu '{pattern}'"
+    assert 0 in weekdays, f"Monday (0) deveria estar em weekdays: {weekdays}"
+    print("✓ test_detect_recurrence_weekly_pattern")
+
+
+def test_detect_recurrence_no_clear_pattern():
+    """_detect_pattern retorna None quando não há padrão claro."""
+    from datetime import date
+
+    # 4 dias diferentes, nenhum concentra >= 80%
+    dates = [
+        date(2026, 4, 6),   # Monday
+        date(2026, 4, 7),   # Tuesday
+        date(2026, 4, 8),   # Wednesday
+        date(2026, 4, 9),   # Thursday
+    ]
+    pattern, weekdays = _detect_pattern(dates)
+    assert pattern is None, f"Esperava None, recebeu '{pattern}'"
+    assert weekdays == []
+    print("✓ test_detect_recurrence_no_clear_pattern")
+
+
+def test_detect_time_mode():
+    """_detect_time_mode extrai horário predominante."""
+    tasks = [
+        {"context": "09:00"},
+        {"context": "09:00"},
+        {"context": "09:00"},
+        {"context": "14:00"},
+        {"context": None},
+    ]
+    time = _detect_time_mode(tasks)
+    assert time == "09:00", f"Esperava '09:00', recebeu '{time}'"
+
+    # Sem predominância
+    tasks_mixed = [
+        {"context": "09:00"},
+        {"context": "14:00"},
+        {"context": "18:00"},
+    ]
+    time_mixed = _detect_time_mode(tasks_mixed)
+    assert time_mixed is None, f"Esperava None, recebeu '{time_mixed}'"
+    print("✓ test_detect_time_mode")
+
+
+def test_detect_recurrence_skips_already_rule():
+    """detect_recurrence_candidates ignora tasks que já têm regra ativa."""
+    from ledger import get_ledger_filename, get_week_start
+
+    today = date(2026, 4, 13)
+    ws = get_week_start(today)
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+
+        # Cria 6 tasks "Tomar remédios" concluídas em 6 dias diferentes → daily
+        records = []
+        for i in range(6):
+            d = date(2026, 4, 6 + i)
+            records.append({
+                "type": "task", "id": f"remedios_{i}", "_operation": "create",
+                "status": "[x]", "priority": "🟢",
+                "description": "Tomar remédios",
+                "source": "manual",
+                "created_at": f"{d}T08:00:00",
+                "completed_at": f"{d}T08:05:00",
+                "first_added_date": str(d),
+                "postpone_count": 0,
+            })
+        # Regra ativa para "Tomar remédios"
+        records.append({
+            "type": "recurrence_rule", "id": "rule_20260413_tomar_remedios",
+            "_operation": "create",
+            "description": "Tomar remédios",
+            "pattern": "daily", "weekdays": [0,1,2,3,4,5,6],
+            "priority": "🟢",
+        })
+        _write_jsonl(ledger_file, records)
+
+        candidates = detect_recurrence_candidates(data_dir, today, min_occurrences=3, lookback_weeks=2)
+        descs = [c["description"] for c in candidates]
+        assert "Tomar remédios" not in descs, "Não deveria sugerir task que já tem regra ativa"
+        print("✓ test_detect_recurrence_skips_already_rule")
+
+
+def test_detect_recurrence_skips_rotina_source():
+    """detect_recurrence_candidates ignora tasks de fonte rotina."""
+    from ledger import get_ledger_filename, get_week_start
+
+    today = date(2026, 4, 13)
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+
+        records = []
+        for i in range(6):
+            d = date(2026, 4, 6 + i)
+            records.append({
+                "type": "task", "id": f"rotina_{i}", "_operation": "create",
+                "status": "[x]", "priority": "🟢",
+                "description": "Meditação 10min",
+                "source": "rotina",
+                "created_at": f"{d}T06:00:00",
+                "completed_at": f"{d}T06:15:00",
+                "first_added_date": str(d),
+                "postpone_count": 0,
+            })
+        _write_jsonl(ledger_file, records)
+
+        candidates = detect_recurrence_candidates(data_dir, today, min_occurrences=3, lookback_weeks=2)
+        descs = [c["description"] for c in candidates]
+        assert "Meditação 10min" not in descs, "Não deveria sugerir task de rotina"
+        print("✓ test_detect_recurrence_skips_rotina_source")
+
+
+def test_activate_and_get_active_rules():
+    """activate_recurrence_rule cria regra e get_active_recurrence_rules a retorna."""
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        ledger_path = get_ledger_path(date(2026, 4, 13), 2026, data_dir)
+
+        result = activate_recurrence_rule(
+            ledger_path=ledger_path,
+            description="Tomar remédios",
+            pattern="daily",
+            weekdays=[0,1,2,3,4,5,6],
+            priority="🟢",
+            time_range="08:00",
+            today_ddmm="13/04",
+            year=2026,
+        )
+        assert result["ok"] is True
+        assert result["rule_id"].startswith("rule_20260413_")
+
+        ledger = load_ledger(ledger_path)
+        rules = get_active_recurrence_rules(ledger)
+        assert len(rules) == 1
+        assert rules[0]["description"] == "Tomar remédios"
+        assert rules[0]["pattern"] == "daily"
+        print("✓ test_activate_and_get_active_rules")
+
+
+def test_deactivate_rule_is_not_destructive():
+    """deactivate_recurrence_rule appenda, não remove. Regra some do get_active."""
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        ledger_path = get_ledger_path(date(2026, 4, 13), 2026, data_dir)
+
+        created = activate_recurrence_rule(
+            ledger_path=ledger_path,
+            description="Estudar inglês",
+            pattern="weekly",
+            weekdays=[0, 2, 4],
+            priority="🟡",
+            time_range=None,
+            today_ddmm="13/04",
+            year=2026,
+        )
+        rule_id = created["rule_id"]
+
+        result = deactivate_recurrence_rule(
+            ledger_path=ledger_path,
+            rule_id=rule_id,
+            reason="Não faz mais sentido",
+            today_ddmm="13/04",
+        )
+        assert result["ok"] is True
+        assert result["deactivated"] is True
+
+        # Regra não aparece mais nas ativas
+        ledger = load_ledger(ledger_path)
+        rules = get_active_recurrence_rules(ledger)
+        assert len(rules) == 0
+
+        # Mas os registros estão no ledger (append-only)
+        rule_records = [r for r in ledger if r.get("type") == "recurrence_rule"]
+        assert len(rule_records) == 2  # create + deactivate
+        print("✓ test_deactivate_rule_is_not_destructive")
+
+
+def test_deactivate_rule_not_found():
+    """deactivate_recurrence_rule retorna erro para regra inexistente."""
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        ledger_path = get_ledger_path(date(2026, 4, 13), 2026, data_dir)
+        # Create empty ledger
+        ledger_path.parent.mkdir(parents=True, exist_ok=True)
+        ledger_path.touch()
+
+        result = deactivate_recurrence_rule(
+            ledger_path=ledger_path,
+            rule_id="rule_inexistente",
+            reason="Teste",
+            today_ddmm="13/04",
+        )
+        assert result["ok"] is False
+        assert "não encontrada" in result["error"].lower()
+        print("✓ test_deactivate_rule_not_found")
+
+
+def test_get_rules_for_weekday():
+    """get_rules_for_weekday filtra corretamente por dia da semana."""
+    rules = [
+        {"id": "r1", "pattern": "daily", "description": "Diária"},
+        {"id": "r2", "pattern": "weekly", "weekdays": [0, 2, 4], "description": "Seg/Qua/Sex"},
+        {"id": "r3", "pattern": "weekly", "weekdays": [1, 3], "description": "Ter/Qui"},
+    ]
+
+    # Monday (weekday=0): daily + r2
+    monday_rules = get_rules_for_weekday(rules, 0)
+    ids = [r["id"] for r in monday_rules]
+    assert "r1" in ids
+    assert "r2" in ids
+    assert "r3" not in ids
+
+    # Tuesday (weekday=1): daily + r3
+    tuesday_rules = get_rules_for_weekday(rules, 1)
+    ids = [r["id"] for r in tuesday_rules]
+    assert "r1" in ids
+    assert "r3" in ids
+    assert "r2" not in ids
+
+    # Sunday (weekday=6): daily only
+    sunday_rules = get_rules_for_weekday(rules, 6)
+    ids = [r["id"] for r in sunday_rules]
+    assert ids == ["r1"]
+    print("✓ test_get_rules_for_weekday")
+
+
+def test_sync_fixed_injects_recurrence_rules():
+    """sync_fixed_agenda injeta tasks de regras de recorrência ativas."""
+    rotina_content = """# Rotina
+
+## Tarefas Diárias
+- 06:00 | Meditação
+"""
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        rotina_path = data_dir / "rotina.md"
+        rotina_path.write_text(rotina_content, encoding="utf-8")
+
+        # Monday 13/04/2026 (weekday=0)
+        ledger_path = get_ledger_path(date(2026, 4, 13), 2026, data_dir)
+
+        # Ativa regra diária
+        activate_recurrence_rule(
+            ledger_path=ledger_path,
+            description="Tomar remédios",
+            pattern="daily",
+            weekdays=[0,1,2,3,4,5,6],
+            priority="🟢",
+            time_range="08:00",
+            today_ddmm="13/04",
+            year=2026,
+        )
+
+        result = sync_fixed_agenda(rotina_path, ledger_path, "13/04", 2026)
+        assert result["ok"] is True
+        assert "Meditação" in result["inserted"]
+        assert "Tomar remédios" in result["inserted"]
+        assert result["sources"]["rotina"]["inserted"] == 1
+        assert result["sources"]["recurrence"]["inserted"] == 1
+
+        # Idempotência: segunda sync não duplica
+        result2 = sync_fixed_agenda(rotina_path, ledger_path, "13/04", 2026)
+        assert result2["sources"]["rotina"]["skipped"] == 1
+        assert result2["sources"]["recurrence"]["skipped"] == 1
+        assert result2["sources"]["rotina"]["inserted"] == 0
+        assert result2["sources"]["recurrence"]["inserted"] == 0
+        print("✓ test_sync_fixed_injects_recurrence_rules")
+
+
+def test_sync_fixed_weekly_respects_weekday():
+    """sync_fixed_agenda só injeta regra weekly no dia correto."""
+    rotina_content = """# Rotina
+
+## Tarefas Diárias
+- 06:00 | Acordar
+"""
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        rotina_path = data_dir / "rotina.md"
+        rotina_path.write_text(rotina_content, encoding="utf-8")
+
+        # Monday 13/04/2026 (weekday=0)
+        ledger_path = get_ledger_path(date(2026, 4, 13), 2026, data_dir)
+
+        # Regra só para terça e quinta (weekdays=[1, 3])
+        activate_recurrence_rule(
+            ledger_path=ledger_path,
+            description="Inglês",
+            pattern="weekly",
+            weekdays=[1, 3],
+            priority="🟡",
+            time_range=None,
+            today_ddmm="13/04",
+            year=2026,
+        )
+
+        # Sync na segunda — regra não se aplica
+        result = sync_fixed_agenda(rotina_path, ledger_path, "13/04", 2026)
+        assert result["sources"]["recurrence"]["inserted"] == 0, (
+            "Regra de terça/quinta não deveria ser injetada na segunda"
+        )
+
+        # Sync na terça 14/04 — regra se aplica
+        ledger_path_tue = get_ledger_path(date(2026, 4, 14), 2026, data_dir)
+        # Copia a regra pro ledger da terça (mesma semana, mesmo arquivo)
+        result_tue = sync_fixed_agenda(rotina_path, ledger_path_tue, "14/04", 2026)
+        assert "Inglês" in result_tue["inserted"], (
+            f"Regra deveria ser injetada na terça. inserted={result_tue['inserted']}"
+        )
+        assert result_tue["sources"]["recurrence"]["inserted"] == 1
+        print("✓ test_sync_fixed_weekly_respects_weekday")
+
+
+def test_cli_recurrence_detect():
+    """CLI recurrence-detect retorna JSON esperado."""
+    from ledger import get_ledger_filename
+
+    today = date(2026, 4, 13)
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+
+        # Cria 6 tasks "Comprar café" em 6 dias diferentes
+        records = []
+        for i in range(6):
+            d = date(2026, 4, 6 + i)
+            records.append({
+                "type": "task", "id": f"cafe_{i}", "_operation": "create",
+                "status": "[x]", "priority": "🟢",
+                "description": "Comprar café",
+                "source": "manual",
+                "created_at": f"{d}T10:00:00",
+                "completed_at": f"{d}T10:30:00",
+                "first_added_date": str(d),
+                "postpone_count": 0,
+            })
+        _write_jsonl(ledger_file, records)
+
+        result = subprocess.run(
+            [
+                sys.executable, str(CLI_PATH), "recurrence-detect",
+                "--today", "13/04", "--year", "2026",
+                "--data-dir", str(data_dir),
+                "--min-occurrences", "3",
+                "--weeks", "2",
+            ],
+            capture_output=True, text=True,
+            env={**__import__("os").environ, "VITA_TEST_MODE": "1"},
+        )
+        assert result.returncode == 0, f"CLI falhou: {result.stderr}"
+        payload = json.loads(result.stdout)
+        assert payload["ok"] is True
+        assert payload["count"] >= 1
+        assert any(c["description"] == "Comprar café" for c in payload["candidates"])
+        print("✓ test_cli_recurrence_detect")
+
+
+def test_cli_recurrence_activate_and_deactivate():
+    """CLI recurrence-activate e recurrence-deactivate funcionam end-to-end."""
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        env = {**__import__("os").environ, "VITA_TEST_MODE": "1"}
+
+        # Activate
+        result = subprocess.run(
+            [
+                sys.executable, str(CLI_PATH), "recurrence-activate",
+                "--description", "Estudar Python",
+                "--pattern", "weekly",
+                "--weekdays", "[0,2,4]",
+                "--priority", "🟡",
+                "--today", "13/04", "--year", "2026",
+                "--data-dir", str(data_dir),
+            ],
+            capture_output=True, text=True, env=env,
+        )
+        assert result.returncode == 0, f"Activate falhou: {result.stderr}"
+        payload = json.loads(result.stdout)
+        assert payload["ok"] is True
+        rule_id = payload["rule_id"]
+
+        # List
+        result = subprocess.run(
+            [
+                sys.executable, str(CLI_PATH), "recurrence-list",
+                "--today", "13/04", "--year", "2026",
+                "--data-dir", str(data_dir),
+            ],
+            capture_output=True, text=True, env=env,
+        )
+        list_payload = json.loads(result.stdout)
+        assert list_payload["count"] == 1
+        assert list_payload["rules"][0]["description"] == "Estudar Python"
+
+        # Deactivate
+        result = subprocess.run(
+            [
+                sys.executable, str(CLI_PATH), "recurrence-deactivate",
+                "--rule-id", rule_id,
+                "--reason", "Mudou de prioridade",
+                "--today", "13/04", "--year", "2026",
+                "--data-dir", str(data_dir),
+            ],
+            capture_output=True, text=True, env=env,
+        )
+        assert result.returncode == 0, f"Deactivate falhou: {result.stderr}"
+        deact_payload = json.loads(result.stdout)
+        assert deact_payload["ok"] is True
+        assert deact_payload["deactivated"] is True
+
+        # List again — should be empty
+        result = subprocess.run(
+            [
+                sys.executable, str(CLI_PATH), "recurrence-list",
+                "--today", "13/04", "--year", "2026",
+                "--data-dir", str(data_dir),
+            ],
+            capture_output=True, text=True, env=env,
+        )
+        final_payload = json.loads(result.stdout)
+        assert final_payload["count"] == 0
+        print("✓ test_cli_recurrence_activate_and_deactivate")
+
+
 def run_all_tests():
     """Executa todos os testes."""
     print('\n=== Testes vita-task-manager ===\n')
@@ -1255,6 +1736,20 @@ def run_all_tests():
     test_word_weights_min_corpus()
     test_word_weights_write_and_load()
     test_weighted_similarity_changes_outcome()
+    test_detect_recurrence_daily_pattern()
+    test_detect_recurrence_weekly_pattern()
+    test_detect_recurrence_no_clear_pattern()
+    test_detect_time_mode()
+    test_detect_recurrence_skips_already_rule()
+    test_detect_recurrence_skips_rotina_source()
+    test_activate_and_get_active_rules()
+    test_deactivate_rule_is_not_destructive()
+    test_deactivate_rule_not_found()
+    test_get_rules_for_weekday()
+    test_sync_fixed_injects_recurrence_rules()
+    test_sync_fixed_weekly_respects_weekday()
+    test_cli_recurrence_detect()
+    test_cli_recurrence_activate_and_deactivate()
     print('\n✓ Todos os testes passaram!\n')
 
 
