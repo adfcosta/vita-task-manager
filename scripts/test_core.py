@@ -27,6 +27,7 @@ try:
         start_task,
         sync_fixed_agenda,
         update_progress,
+        update_task,
     )
     from .models import BrainDumpEntry, SuggestedTask, Task, TaskFile
     from .render import render_daily
@@ -59,6 +60,7 @@ except ImportError:
         start_task,
         sync_fixed_agenda,
         update_progress,
+        update_task,
     )
     from models import BrainDumpEntry, SuggestedTask, Task, TaskFile
     from render import render_daily
@@ -436,6 +438,12 @@ def test_whatsapp_format():
             'medium': [SuggestedTask(task_id='2', title='Responder emails', score=52, size_category='medium', explanation='prazo hoje')],
             'small': [SuggestedTask(task_id='3', title='Ligar dentista', score=41, size_category='small', explanation='rápida de executar')],
         },
+        feedback_do_dia={
+            'panorama': 'Manhã pesada, tarde livre.',
+            'foco': 'Fechar proposta até 14h.',
+            'alerta': 'Reunião de 16h ainda sem pauta.',
+            'acao_sugerida': 'Bloqueie 2h agora pra proposta.',
+        },
     )
     rendered = format_task_file_whatsapp(taskfile, date(2026, 4, 8))
     assert '📋 Tasks — 08/04/2026' in rendered
@@ -447,7 +455,66 @@ def test_whatsapp_format():
     assert '🧠 BRAIN DUMP' in rendered
     assert '🎯 SUGESTÃO 1-3-5' in rendered
     assert '💬 Quer seguir essa sugestão?' in rendered
+    # Feedback renderizado
+    assert '💬 Da Vita' in rendered
+    assert 'Panorama: Manhã pesada, tarde livre.' in rendered
+    assert 'Foco: Fechar proposta até 14h.' in rendered
+    assert '⚠️ Alerta: Reunião de 16h ainda sem pauta.' in rendered
+    assert '→ Bloqueie 2h agora pra proposta.' in rendered
+    # Feedback vem antes das seções de tasks
+    assert rendered.index('💬 Da Vita') < rendered.index('🔴 URGENTE')
     print('✓ test_whatsapp_format')
+
+
+def test_whatsapp_omits_incomplete_feedback():
+    """Feedback incompleto não deve gerar seção no WhatsApp."""
+    base_task = Task(status='[ ]', priority='🟡', description='Task teste', due_date='09/04', first_added_date='2026-04-08')
+    today = date(2026, 4, 8)
+
+    scenarios = [
+        {},  # vazio
+        {'panorama': 'Algo'},  # só 1 de 4
+        {'panorama': 'X', 'foco': 'Y', 'alerta': 'Z'},  # 3 de 4
+        {'panorama': 'X', 'foco': 'Y', 'alerta': 'Z', 'acao_sugerida': ''},  # 4 mas um vazio
+    ]
+    for feedback in scenarios:
+        taskfile = TaskFile(
+            title='Tasks — 08/04/2026',
+            open_tasks=[base_task],
+            feedback_do_dia=feedback,
+        )
+        rendered = format_task_file_whatsapp(taskfile, today)
+        assert '💬 Da Vita' not in rendered, (
+            f"Feedback incompleto não deveria renderizar. feedback={feedback}"
+        )
+    print('✓ test_whatsapp_omits_incomplete_feedback')
+
+
+def test_whatsapp_renders_complete_feedback():
+    """Feedback completo deve gerar seção no topo do WhatsApp."""
+    base_task = Task(status='[ ]', priority='🟡', description='Task teste', due_date='09/04', first_added_date='2026-04-08')
+    today = date(2026, 4, 8)
+    feedback = {
+        'panorama': 'Dia tranquilo.',
+        'foco': 'Resolver bug.',
+        'alerta': 'Deploy às 17h.',
+        'acao_sugerida': 'Comece pelo bug agora.',
+    }
+    taskfile = TaskFile(
+        title='Tasks — 08/04/2026',
+        open_tasks=[base_task],
+        feedback_do_dia=feedback,
+    )
+    rendered = format_task_file_whatsapp(taskfile, today)
+    assert '💬 Da Vita' in rendered
+    assert 'Panorama: Dia tranquilo.' in rendered
+    assert 'Foco: Resolver bug.' in rendered
+    assert '⚠️ Alerta: Deploy às 17h.' in rendered
+    assert '→ Comece pelo bug agora.' in rendered
+    # Ordem: título → feedback → tasks
+    assert rendered.index('📋 Tasks') < rendered.index('💬 Da Vita')
+    assert rendered.index('💬 Da Vita') < rendered.index('Task teste')
+    print('✓ test_whatsapp_renders_complete_feedback')
 
 
 def test_cli_render_whatsapp():
@@ -690,6 +757,97 @@ def test_execution_history_cli():
         print('✓ test_execution_history_cli')
 
 
+def test_ledger_update_fields():
+    """ledger-update deve alterar campos sem criar duplicata."""
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        ledger_path = get_ledger_path(date(2026, 4, 12), 2026, data_dir)
+
+        created = add_task(ledger_path, 'Encontrar contrato de aluguel', '🟡', '12/04', 2026, context='juridico')
+        task_id = created['task_id']
+
+        # Atualiza context
+        result = update_task(ledger_path, task_id, '12/04', context='jurídico residencial')
+        assert result['ok'] is True
+        assert result['updated_fields'] == ['context']
+
+        state = get_current_task_state(load_ledger(ledger_path), task_id)
+        assert state['context'] == 'jurídico residencial'
+        assert state['description'] == 'Encontrar contrato de aluguel'
+
+        # Atualiza description e priority ao mesmo tempo
+        result2 = update_task(ledger_path, task_id, '12/04', description='Encontrar contrato', priority='🔴')
+        assert result2['ok'] is True
+        assert set(result2['updated_fields']) == {'description', 'priority'}
+
+        state2 = get_current_task_state(load_ledger(ledger_path), task_id)
+        assert state2['description'] == 'Encontrar contrato'
+        assert state2['priority'] == '🔴'
+        assert state2['context'] == 'jurídico residencial'  # intacto
+
+        print('✓ test_ledger_update_fields')
+
+
+def test_ledger_update_not_found():
+    """ledger-update em task inexistente retorna erro."""
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        ledger_path = get_ledger_path(date(2026, 4, 12), 2026, data_dir)
+
+        result = update_task(ledger_path, 'inexistente_123', '12/04', description='Nova')
+        assert result['ok'] is False
+        assert 'não encontrada' in result['error'].lower() or 'não encontrada' in result['error']
+
+        print('✓ test_ledger_update_not_found')
+
+
+def test_ledger_update_no_fields():
+    """ledger-update sem campos retorna erro."""
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        ledger_path = get_ledger_path(date(2026, 4, 12), 2026, data_dir)
+
+        add_task(ledger_path, 'Task qualquer', '🟡', '12/04', 2026)
+
+        result = update_task(ledger_path, '20260412_task_qualquer', '12/04')
+        assert result['ok'] is False
+        assert 'nenhum campo' in result['error'].lower()
+
+        print('✓ test_ledger_update_no_fields')
+
+
+def test_ledger_update_cli():
+    """CLI ledger-update deve funcionar via subprocess."""
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        ledger_path = get_ledger_path(date(2026, 4, 12), 2026, data_dir)
+
+        add_task(ledger_path, 'Avaliar contrato', '🟡', '12/04', 2026, context='juridico')
+
+        result = subprocess.run(
+            [
+                sys.executable, str(CLI_PATH), 'ledger-update',
+                '--task-id', '20260412_avaliar_contrato',
+                '--context', 'jurídico residencial',
+                '--today', '12/04',
+                '--year', '2026',
+                '--data-dir', str(data_dir),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        payload = json.loads(result.stdout)
+        assert payload['ok'] is True
+        assert 'context' in payload['updated_fields']
+
+        state = get_current_task_state(load_ledger(ledger_path), '20260412_avaliar_contrato')
+        assert state['context'] == 'jurídico residencial'
+        assert state['description'] == 'Avaliar contrato'
+
+        print('✓ test_ledger_update_cli')
+
+
 def test_duplicate_detection_warns():
     """add_task emite warning quando descrição é similar a task aberta."""
     with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
@@ -795,12 +953,18 @@ def run_all_tests():
     test_markdown_visual_states()
     test_markdown_in_progress_shows_bar()
     test_whatsapp_format()
+    test_whatsapp_omits_incomplete_feedback()
+    test_whatsapp_renders_complete_feedback()
     test_cli_render_whatsapp()
     test_cli_check_wip()
     test_execution_history_basic()
     test_execution_history_render_markdown()
     test_execution_history_write_preserves_observations()
     test_execution_history_cli()
+    test_ledger_update_fields()
+    test_ledger_update_not_found()
+    test_ledger_update_no_fields()
+    test_ledger_update_cli()
     test_duplicate_detection_warns()
     test_duplicate_detection_allow_flag()
     test_duplicate_detection_no_false_positive()

@@ -432,6 +432,58 @@ def cancel_task(
     }
 
 
+def update_task(
+    ledger_path: Path,
+    task_id: str,
+    today_ddmm: str,
+    description: Optional[str] = None,
+    context: Optional[str] = None,
+    priority: Optional[str] = None,
+    due_date: Optional[str] = None,
+) -> dict[str, Any]:
+    """Atualiza campos de uma task existente sem criar duplicata.
+
+    Só os campos passados (não-None) são alterados. O merge de estado
+    em _merge_task_records já faz o fold correto — basta appendar
+    um registro com _operation: "update" e os campos novos.
+    """
+    ledger = load_ledger(ledger_path)
+    task = find_task(ledger, task_id)
+
+    if not task:
+        return {"ok": False, "error": f"Task não encontrada: {task_id}"}
+
+    updates: dict[str, Any] = {}
+    if description is not None:
+        updates["description"] = description
+    if context is not None:
+        updates["context"] = context
+    if priority is not None:
+        updates["priority"] = priority
+    if due_date is not None:
+        updates["due_date"] = due_date
+
+    if not updates:
+        return {"ok": False, "error": "Nenhum campo para atualizar."}
+
+    record: dict[str, Any] = {
+        "type": "task",
+        "id": task_id,
+        "_operation": "update",
+        "updated_at": _now_iso(),
+        **updates,
+    }
+
+    append_record(ledger_path, record)
+
+    return {
+        "ok": True,
+        "action": "update",
+        "task_id": task_id,
+        "updated_fields": list(updates.keys()),
+    }
+
+
 def _entry_hash(description: str, time_range: str | None) -> str:
     """Gera hash normalizada para deduplicação robusta."""
     import hashlib
