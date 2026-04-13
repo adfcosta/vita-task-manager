@@ -17,14 +17,17 @@ Exceção: `input/rotina.md` e `input/agenda-semana.md` são editados manualment
 
 ## Estrutura de Arquivos
 
-| Caminho | Papel | Quem edita |
-|---|---|---|
-| `input/rotina.md` | Rotina diária (entra todo dia no pipeline) | Usuário |
-| `input/agenda-semana.md` | Compromissos pontuais da semana | Usuário |
-| `data/historico/DDMMYY_DDMMYY_bruto.jsonl` | Ledger append-only (fonte de verdade) | CLI |
-| `data/historico-execucao.md` | Relatório de padrões de execução | CLI (execution-history) |
-| `data/word_weights.json` | Pesos por palavra para detecção de duplicatas | CLI (execution-history) |
-| `output/diarias.txt` | Render diário em formato WhatsApp | CLI (pipeline/render) |
+O repositório versiona apenas o código da skill e exemplos. Todos os dados pessoais e arquivos gerados ficam no `.gitignore` — use `examples/` como ponto de partida.
+
+| Caminho | Papel | Quem edita | Versionado? |
+|---|---|---|---|
+| `input/rotina.md` | Rotina diária (entra todo dia no pipeline) | Usuário | ❌ gitignore |
+| `input/agenda-semana.md` | Compromissos pontuais da semana | Usuário | ❌ gitignore |
+| `data/historico/DDMMYY_DDMMYY_bruto.jsonl` | Ledger append-only (fonte de verdade) | CLI | ❌ gitignore |
+| `data/historico-execucao.md` | Relatório de padrões de execução | CLI (execution-history) | ❌ gitignore |
+| `data/word_weights.json` | Pesos por palavra para detecção de duplicatas | CLI (execution-history) | ❌ gitignore |
+| `output/diarias.txt` | Render diário em formato WhatsApp | CLI (pipeline/render) | ❌ gitignore |
+| `examples/rotina.md` | Exemplo de rotina (ponto de partida) | Mantenedores | ✅ versionado |
 
 `output/diarias.md` **não existe por padrão** — só é gerado se você invocar `render --format markdown --output output/diarias.md` explicitamente.
 

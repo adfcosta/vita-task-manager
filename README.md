@@ -2,7 +2,7 @@
 
 Sistema de gerenciamento de tarefas pessoais com **ledger JSONL** como fonte de verdade, otimizado para TDAH.
 
-**Versão:** 2.5.0  
+**Versão:** 2.6.0  
 **Localização:** `/home/node/.openclaw/workspace/vita/skills/vita-task-manager/`
 
 ---
@@ -338,25 +338,53 @@ Toda modificação passa **exclusivamente** pela CLI. Se a CLI não tem comando 
 
 ```
 vita-task-manager/
-├── SKILL.md              # Este arquivo
+├── SKILL.md              # Documentação da skill
 ├── CHANGELOG.md          # Histórico de versões
 ├── README.md             # Documentação técnica
 ├── ROADMAP.md            # Implementações futuras
+├── .gitignore            # Ignora dados pessoais e artefatos
+├── examples/
+│   └── rotina.md        # Exemplo de rotina (ponto de partida)
 ├── scripts/
 │   ├── cli.py           # Interface principal
 │   ├── ledger.py        # Engine JSONL
 │   ├── ledger_ops.py    # CRUD
 │   ├── pipeline.py      # Orquestrador
 │   ├── render.py        # Geração de saída
+│   ├── recurrence.py    # Detecção de padrões e regras de recorrência
 │   ├── feedback_logic.py # Lógica de feedback
 │   ├── execution_history.py # Padrões de execução + word weights
 │   ├── rollover.py      # Transição semanal
 │   └── test_core.py     # Testes automatizados
-└── data/
-    ├── historico/       # Ledgers JSONL
-    ├── historico-execucao.md  # Relatório de padrões
-    └── word_weights.json     # Pesos para detecção de duplicatas
+├── input/               # Arquivos pessoais do usuário (gitignore)
+├── data/
+│   └── historico/       # Ledgers JSONL (gitignore)
+└── output/              # Render diário (gitignore)
 ```
+
+### Dados do usuário
+
+O repositório versiona apenas o código da skill e exemplos. Todos os dados pessoais e arquivos gerados ficam no `.gitignore`:
+
+- `input/rotina.md` — rotina diária pessoal
+- `input/agenda-semana.md` — compromissos pontuais da semana
+- `data/historico/*.jsonl` — ledger JSONL append-only
+- `data/historico-execucao.md` — métricas de execução
+- `data/word_weights.json` — pesos de palavras (gerado)
+- `output/diarias.txt` — render diário
+
+Esses arquivos ficam no `.gitignore` para que updates da skill não contaminem os dados do usuário, e para que os dados do usuário não poluam o repositório da skill.
+
+### Primeiro uso
+
+Copie os exemplos pro lugar certo antes de rodar o pipeline:
+
+```bash
+cp examples/rotina.md input/rotina.md
+# cp examples/agenda-semana.md input/agenda-semana.md  # quando disponível
+```
+
+Edite `input/rotina.md` com sua rotina real. A partir daí, os comandos do CLI vão criar e atualizar os outros arquivos automaticamente.
 
 ---
 
