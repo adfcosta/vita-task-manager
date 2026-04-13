@@ -51,10 +51,10 @@ def daily_pipeline(
         "summary": {},
     }
 
-    # 1. Domingo: tenta rollover antes de qualquer coisa.
-    # A própria função decide se precisa ou não.
-    if today.weekday() == 6:  # domingo
-        results["rollover"] = perform_rollover(data_dir, today, year)
+    # 1. Rollover: tenta sempre — a própria função decide se precisa ou não.
+    #    Não restringe ao domingo; se o pipeline não rodou no domingo,
+    #    o rollover acontece no primeiro dia em que for chamado.
+    results["rollover"] = perform_rollover(data_dir, today, year)
 
     # Recalcula ledger_path porque rollover pode ter criado o da semana nova
     ledger_path = get_ledger_path(today, year, data_dir)

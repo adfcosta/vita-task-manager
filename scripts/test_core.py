@@ -40,6 +40,7 @@ try:
     )
     from .suggester import explain_suggestion, suggest_135
     from .execution_history import build_execution_history, render_markdown as render_history_markdown, write_history_file
+    from .rollover import perform_rollover
 except ImportError:
     from formatter import format_task_file
     from formatter_whatsapp import format_task_file_whatsapp
@@ -73,6 +74,7 @@ except ImportError:
     )
     from suggester import explain_suggestion, suggest_135
     from execution_history import build_execution_history, render_markdown as render_history_markdown, write_history_file
+    from rollover import perform_rollover
 
 
 CLI_PATH = Path(__file__).parent / 'cli.py'
@@ -933,6 +935,155 @@ def test_duplicate_detection_ignores_completed():
         print('✓ test_duplicate_detection_ignores_completed')
 
 
+def test_rollover_on_sunday():
+    """Rollover funciona normalmente quando chamado no domingo."""
+    from ledger import get_ledger_filename, get_week_start
+
+    with tempfile.TemporaryDirectory() as tmp:
+        data_dir = Path(tmp)
+        hist = data_dir / "historico"
+        hist.mkdir()
+
+        # Semana anterior: 05/04 (dom) a 11/04 (sáb)
+        last_sunday = date(2026, 4, 5)
+        old_ledger = hist / get_ledger_filename(last_sunday)
+        records = [
+            _create_test_ledger_record("t1", "Task pendente", "[ ]", "manual", "2026-04-06T09:00:00", "2026-04-06"),
+            _create_test_ledger_record("t2", "Task concluída", "[x]", "manual", "2026-04-06T09:00:00", "2026-04-06", completed_at="2026-04-07T17:00:00"),
+            _create_test_ledger_record("t3", "Task em andamento", "[~]", "manual", "2026-04-08T09:00:00", "2026-04-08"),
+        ]
+        _write_jsonl(old_ledger, records)
+
+        # Domingo 12/04 — início da semana nova
+        today = date(2026, 4, 12)
+        result = perform_rollover(data_dir, today, 2026)
+
+        assert result["performed"] is True
+        assert result["carried_over"] == 2, f"Esperava 2 tasks carregadas, recebeu {result['carried_over']}"
+
+        descriptions = {t["description"] for t in result["tasks"]}
+        assert "Task pendente" in descriptions
+        assert "Task em andamento" in descriptions
+        assert "Task concluída" not in descriptions
+
+        # Verifica que novo ledger foi criado
+        new_ledger = hist / get_ledger_filename(today)
+        assert new_ledger.exists(), f"Novo ledger deveria existir: {new_ledger}"
+
+        print("✓ test_rollover_on_sunday")
+
+
+def test_rollover_missed_sunday():
+    """Rollover funciona quando chamado na segunda (domingo foi perdido)."""
+    from ledger import get_ledger_filename, get_week_start
+
+    with tempfile.TemporaryDirectory() as tmp:
+        data_dir = Path(tmp)
+        hist = data_dir / "historico"
+        hist.mkdir()
+
+        # Semana anterior: 05/04 a 11/04
+        last_sunday = date(2026, 4, 5)
+        old_ledger = hist / get_ledger_filename(last_sunday)
+        records = [
+            _create_test_ledger_record("t1", "Ligar pro dentista", "[ ]", "manual", "2026-04-07T09:00:00", "2026-04-07", postpone_count=2),
+            _create_test_ledger_record("t2", "Revisar e-mails", "[x]", "rotina", "2026-04-06T08:00:00", "2026-04-06", completed_at="2026-04-06T10:00:00"),
+        ]
+        _write_jsonl(old_ledger, records)
+
+        # Segunda-feira 13/04 — pipeline não rodou no domingo
+        today = date(2026, 4, 13)
+        result = perform_rollover(data_dir, today, 2026)
+
+        assert result["performed"] is True, "Rollover deveria executar mesmo na segunda"
+        assert result["carried_over"] == 1
+        assert result["tasks"][0]["description"] == "Ligar pro dentista"
+
+        # Verifica que o novo ledger pertence à semana certa (12/04-18/04)
+        new_sunday = get_week_start(today)  # 12/04
+        new_ledger = hist / get_ledger_filename(new_sunday)
+        assert new_ledger.exists(), f"Ledger da semana 12-18/04 deveria existir"
+
+        # postpone_count deve ter incrementado
+        new_records = load_ledger(new_ledger)
+        carried_task = [r for r in new_records if r.get("description") == "Ligar pro dentista"][0]
+        assert carried_task["postpone_count"] == 3, f"postpone_count deveria ser 3, é {carried_task['postpone_count']}"
+
+        print("✓ test_rollover_missed_sunday")
+
+
+def test_rollover_no_duplicate():
+    """Rollover não re-executa se ledger da semana já existe."""
+    from ledger import get_ledger_filename
+
+    with tempfile.TemporaryDirectory() as tmp:
+        data_dir = Path(tmp)
+        hist = data_dir / "historico"
+        hist.mkdir()
+
+        # Semana anterior
+        last_sunday = date(2026, 4, 5)
+        old_ledger = hist / get_ledger_filename(last_sunday)
+        _write_jsonl(old_ledger, [
+            _create_test_ledger_record("t1", "Task X", "[ ]"),
+        ])
+
+        # Ledger da semana nova já existe (rollover já foi feito)
+        new_sunday = date(2026, 4, 12)
+        new_ledger = hist / get_ledger_filename(new_sunday)
+        _write_jsonl(new_ledger, [
+            _create_test_ledger_record("t1_new", "Task X (carried)", "[ ]"),
+        ])
+
+        # Chama rollover novamente — deve ser no-op
+        result = perform_rollover(data_dir, date(2026, 4, 14), 2026)
+        assert result["performed"] is False
+        assert result["carried_over"] == 0
+
+        # Novo ledger não deve ter records duplicados
+        new_records = load_ledger(new_ledger)
+        assert len(new_records) == 1, "Não deveria duplicar tasks no rollover"
+
+        print("✓ test_rollover_no_duplicate")
+
+
+def test_ledger_status_cli():
+    """ledger-status retorna diagnóstico correto via CLI."""
+    from ledger import get_ledger_filename, get_week_start
+
+    with tempfile.TemporaryDirectory() as tmp:
+        data_dir = Path(tmp)
+        hist = data_dir / "historico"
+        hist.mkdir()
+
+        # Semana anterior com tasks pendentes
+        last_sunday = date(2026, 4, 5)
+        old_ledger = hist / get_ledger_filename(last_sunday)
+        _write_jsonl(old_ledger, [
+            _create_test_ledger_record("t1", "Task pendente", "[ ]"),
+            _create_test_ledger_record("t2", "Task feita", "[x]", completed_at="2026-04-07T17:00:00"),
+        ])
+
+        # Sem ledger da semana atual — rollover pendente
+        result = subprocess.run(
+            [sys.executable, str(CLI_PATH), "ledger-status",
+             "--today", "13/04", "--year", "2026", "--data-dir", str(data_dir)],
+            capture_output=True, text=True,
+            env={**__import__('os').environ, "VITA_TEST_MODE": "1"},
+        )
+        assert result.returncode == 0, f"CLI falhou: {result.stderr}"
+        status = json.loads(result.stdout)
+
+        assert status["current_week"]["exists"] is False
+        assert status["previous_week"]["exists"] is True
+        assert status["previous_ledger"]["pending_tasks"] == 1
+        assert status["previous_ledger"]["needs_rollover"] is True
+        assert len(status["issues"]) > 0
+        assert status["healthy"] is False
+
+        print("✓ test_ledger_status_cli")
+
+
 def run_all_tests():
     """Executa todos os testes."""
     print('\n=== Testes vita-task-manager ===\n')
@@ -970,6 +1121,10 @@ def run_all_tests():
     test_duplicate_detection_no_false_positive()
     test_duplicate_detection_accent_normalization()
     test_duplicate_detection_ignores_completed()
+    test_rollover_on_sunday()
+    test_rollover_missed_sunday()
+    test_rollover_no_duplicate()
+    test_ledger_status_cli()
     print('\n✓ Todos os testes passaram!\n')
 
 

@@ -38,12 +38,13 @@ def perform_rollover(
 
     Retorna relatório da operação.
     """
-    # Ledger anterior (domingo anterior)
-    last_sunday = today - timedelta(days=7)
+    # Ledger anterior (domingo da semana passada)
+    current_sunday = get_week_start(today)
+    last_sunday = current_sunday - timedelta(days=7)
     old_ledger_path = get_ledger_path(last_sunday, year, data_dir)
 
-    # Ledger atual
-    new_ledger_path = get_ledger_path(today, year, data_dir)
+    # Ledger atual (semana que começa no domingo corrente)
+    new_ledger_path = get_ledger_path(current_sunday, year, data_dir)
 
     if not old_ledger_path.exists():
         return {
