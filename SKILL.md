@@ -7,7 +7,7 @@ description: Gerenciar tarefas pessoais via ledger JSONL e CLI dedicada.
 
 Sistema de tasks pessoais com **ledger JSONL append-only** como fonte de verdade, otimizado para TDAH.
 
-**Versão:** 2.3.1
+**Versão:** 2.4.0
 
 ## Regra de Ouro
 
