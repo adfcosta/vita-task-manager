@@ -5,16 +5,32 @@ description: Gerenciar tarefas pessoais via ledger JSONL e CLI dedicada.
 
 # Vita Task Manager
 
-Fonte de verdade: `data/historico/DDMMYY_DDMMYY_bruto.jsonl`.
+Sistema de tasks pessoais com **ledger JSONL append-only** como fonte de verdade, otimizado para TDAH.
+
+**Versão:** 2.3.1
+
+## Regra de Ouro
+
+Escrita só via `python3 scripts/cli.py ...`. Nunca use `write`, `edit` ou edição direta nos arquivos de `output/` ou `data/historico/`.
+
+Exceção: `input/rotina.md` e `input/agenda-semana.md` são editados manualmente pelo usuário — a skill apenas lê.
+
+## Estrutura de Arquivos
+
+| Caminho | Papel | Quem edita |
+|---|---|---|
+| `input/rotina.md` | Rotina diária (entra todo dia no pipeline) | Usuário |
+| `input/agenda-semana.md` | Compromissos pontuais da semana | Usuário |
+| `data/historico/DDMMYY_DDMMYY_bruto.jsonl` | Ledger append-only (fonte de verdade) | CLI |
+| `output/diarias.txt` | Render diário em formato WhatsApp | CLI (pipeline/render) |
+
+`output/diarias.md` **não existe por padrão** — só é gerado se você invocar `render --format markdown --output output/diarias.md` explicitamente.
 
 ## Arquivos de Input
 
-| Arquivo | Formato | Descrição |
-|---------|---------|-----------|
-| `input/rotina.md` | Lista de tarefas com horário | Tarefas que entram automaticamente todo dia |
-| `input/agenda-semana.md` | Compromissos por dia da semana | Eventos pontuais da semana |
+### `input/rotina.md`
 
-### Formato de rotina.md
+Lista achatada de tarefas diárias com horário:
 
 ```markdown
 # Rotina
@@ -26,43 +42,30 @@ Fonte de verdade: `data/historico/DDMMYY_DDMMYY_bruto.jsonl`.
 - 08:00 | Revisar e-mails
 ```
 
-Cada linha: `- {HH:MM} | {descrição}`
+Cada linha: `- {HH:MM} | {descrição}`. Sem prioridade, sem checkbox — a skill injeta essas entradas no ledger todo dia via `sync-fixed` (chamado automaticamente pelo pipeline).
 
-- **Sem prioridade** — definida manualmente ou pelo CLI depois
-- **Sem checkbox** — a rotina é apenas uma lista de atividades
+### `input/agenda-semana.md`
 
-## Regra central
+Compromissos pontuais agrupados por dia:
 
-Use **somente** `python3 scripts/cli.py ...` para escrever. Nunca use `write`, `edit` ou outra escrita direta nos arquivos da skill.
+```markdown
+# Agenda da Semana — 06/04 a 12/04/2026
 
-## Estrutura
+## Domingo 06/04
 
-| Caminho | Papel |
-|---|---|
-| `input/rotina.md` | rotina diária |
-| `input/agenda-semana.md` | agenda pontual |
-| `data/historico/*.jsonl` | ledger |
-| `output/diarias.txt` | render do dia (padrão WhatsApp) |
-| `output/diarias.md` | render do dia (markdown explícito) |
+## Segunda 07/04
+- 14:00 — Médico
+- 22:00 — Reunião
 
-## Formatos de saída
+## Terça 08/04
+- 10:00 — Dentista
+```
 
-| Formato | Uso | Comando |
-|---------|-----|---------|
-| `markdown` | Legível em editores | `--format markdown` |
-| `whatsapp` | Padrão otimizado para mensagens mobile | `--format whatsapp` (default) |
+Separador aceito: `—`, `-`, `–` ou `|`. Esses itens aparecem no render como **compromissos do dia** (informativo), não como tasks no ledger.
 
-## Convenções
+## Fluxo Diário (Pipeline)
 
-| Item | Regra |
-|---|---|
-| Semana | domingo → sábado (`America/Maceio`) |
-| IDs | `YYYYMMDD_slug`, com `_2`, `_3` se colidir |
-| Limpeza | concluídas/canceladas antigas não aparecem no render |
-| WIP padrão | `2` tasks em `[~]` |
-| Render | `whatsapp` padrão, `markdown` opcional |
-
-## Fluxo padrão
+Comando único que faz tudo:
 
 ```bash
 python3 scripts/cli.py pipeline \
@@ -73,46 +76,139 @@ python3 scripts/cli.py pipeline \
   --output output/diarias.txt
 ```
 
-Retorno inclui `feedback_status`: `required`, `offer` ou `skip`.
+O que acontece internamente:
 
-> **Nota:** Como `whatsapp` é o formato padrão, use `output/diarias.txt`. Para markdown explícito, use `--format markdown` com `output/diarias.md`.
+1. **Rollover semanal** — se for domingo e houver ledger da semana anterior, carrega tasks pendentes/em andamento pro novo ledger (automático)
+2. **Sync da rotina** — injeta as entradas de `rotina.md` do dia no ledger (dedupe via hash, não duplica em re-runs)
+3. **Avaliação de feedback** — decide se precisa pedir novo feedback à Vita (ver seção Feedback)
+4. **Render** — gera `output/diarias.txt` em formato WhatsApp
+
+Flags opcionais:
+
+- `--force-feedback` — força `feedback_status=offer` mesmo quando nada mudou
+
+### Sobre `--format`
+
+⚠️ **O comando `pipeline` NÃO aceita `--format`** — ele sempre escreve formato WhatsApp em `output/diarias.txt`.
+
+Se você precisar do formato markdown, use o comando `render` separadamente (ver seção Render).
+
+### Retorno do pipeline
+
+JSON com campos úteis:
+
+```json
+{
+  "ledger_path": "data/historico/050426_110426_bruto.jsonl",
+  "rollover": {"performed": false},
+  "sync_fixed": {"inserted": [...], "skipped": [...]},
+  "feedback_status": "required",
+  "feedback_seed": {...},
+  "last_feedback": null,
+  "changes_since": [],
+  "output_path": "output/diarias.txt",
+  "summary": {"open": 7, "completed_today": 0, "cancelled_today": 0, "compromissos": 0}
+}
+```
 
 ## Feedback
 
 Se `feedback_status` for `required` ou `offer`:
-1. Ler `feedback_seed`.
-2. Gerar `panorama`, `foco`, `alerta`, `acao_sugerida`.
-3. Salvar via `store-feedback`.
-4. Re-renderizar se necessário.
+
+1. Ler `feedback_seed` (tem `has_overdue`, `due_today`, `at_risk_tasks`, `suggested_focus`, etc.)
+2. Gerar os 4 campos obrigatórios: `panorama`, `foco`, `alerta`, `acao_sugerida`
+3. Salvar via `store-feedback`
+4. Re-renderizar se quiser que o feedback apareça no `.txt`
+
+Exemplo de `store-feedback`:
+
+```bash
+python3 scripts/cli.py store-feedback \
+  --today 08/04 --year 2026 --data-dir data \
+  --data '{"panorama":"Há 3 tasks urgentes","foco":"Relatório do cliente","alerta":"Prazo em 2 dias","acao_sugerida":"Bloquear 2h de foco agora"}'
+```
+
+Todos os 4 campos são obrigatórios — a CLI rejeita payloads incompletos.
+
+Se `feedback_status=skip`, nada mudou desde o último feedback — não precisa gerar novo.
+
+## Formato de Saída (WhatsApp)
+
+O `output/diarias.txt` segue este layout:
+
+```
+📋 Tasks — 08/04/2026
+
+🔴 URGENTE (prazo hoje)
+▢ Revisar arquitetura
+
+🟡 EM ANDAMENTO
+⏳ Escrever documentação
+  [█████░░░░░] 50% (5/10 páginas)
+  restam 5 páginas
+
+🟢 BAIXA PRIORIDADE
+▢ Ligar dentista
+
+➖➖➖➖➖➖➖➖➖➖
+
+🧠 BRAIN DUMP
+⏰ até 10/04:
+• Trocar lâmpada
+• Comprar café
+💡 Dica: Escolha 1 pra virar próxima ação
+
+➖➖➖➖➖➖➖➖➖➖
+
+🎯 SUGESTÃO 1-3-5
+🔥 BIG: 👉 Revisar arquitetura — score 38
+   Por quê: prazo imediato; exige bloco de foco
+⚡ MEDIUM: 👉 Responder emails — score 52
+   Por quê: prazo hoje; rápido de fazer
+...
+```
+
+Prefixos de idade:
+- `⚠️` — task parada há mais de 7 dias
+- `👻` — task parada há mais de 14 dias
 
 ## Comandos
 
-| Grupo | Comando |
-|---|---|
-| fluxo | `pipeline`, `render`, `weekly-summary`, `rollover` |
-| CRUD | `ledger-add`, `ledger-start`, `ledger-progress`, `ledger-complete`, `ledger-cancel` |
-| apoio | `check-wip`, `sync-fixed`, `store-feedback` |
-| captura | `brain-dump`, `dump-to-task` |
-| priorização | `score-task`, `suggest-daily`, `explain-task` |
-| legado | `validate`, `summary`, `add`, `progress`, `complete`, `cancel`, `resort` |
-
-## Brain dump
+### Captura rápida (TDAH)
 
 ```bash
-python3 scripts/cli.py brain-dump --text "Comprar café, ligar pro João" \
+# brain dump: captura texto livre sem criar task
+python3 scripts/cli.py brain-dump \
+  --text "Comprar café, ligar pro João" \
   --today 08/04 --year 2026 --data-dir data
 
-python3 scripts/cli.py dump-to-task --dump-id 20260408_dump_001 \
-  --item "Comprar café" --priority 🟡 \
+# com prazo opcional (DD/MM/YYYY ou +N dias):
+python3 scripts/cli.py brain-dump --text "..." --due +3 ...
+
+# promover item do dump pra task formal
+python3 scripts/cli.py dump-to-task \
+  --dump-id 20260408_dump_001 \
+  --item "Comprar café" \
+  --priority 🟡 \
+  --next-action "Passar no mercado antes das 18h" \
   --today 08/04 --year 2026 --data-dir data
 ```
 
-## Scoring 1-3-5
+`dump-to-task` também aceita `--due` (herda do dump se não passar).
 
-- fórmula: `(urgency×0.35) + (complexity×0.25) + (age×0.20) - (postpone×0.20)`
-- complexidade: `1-10`
-- faixas: Big `8-10`, Medium `4-7`, Small `1-3`
-- limite: `1/3/5`
+### CRUD de tasks
+
+```bash
+ledger-add       --description "..." --priority 🔴 --due 10/04 ...
+ledger-start     --task-id ID ...      # respeita WIP limit
+ledger-progress  --task-id ID --done 5 --total 10 --unit "pgs" ...
+ledger-complete  --task-id ID ...
+ledger-cancel    --task-id ID --reason "..." ...
+```
+
+Todos aceitam `--description` no lugar de `--task-id` pra resolução por texto.
+
+### Priorização (scoring)
 
 ```bash
 python3 scripts/cli.py score-task --task-id ID --today DD/MM --year YYYY --data-dir data
@@ -120,30 +216,113 @@ python3 scripts/cli.py suggest-daily --today DD/MM --year YYYY --data-dir data -
 python3 scripts/cli.py explain-task --task-id ID --today DD/MM --year YYYY --data-dir data
 ```
 
-## WIP
+Use `suggest-daily` quando o usuário perguntar "o que fazer hoje?" ou parecer sobrecarregado.
+
+### Apoio
 
 ```bash
-python3 scripts/cli.py check-wip --today DD/MM --year YYYY --data-dir data
-python3 scripts/cli.py ledger-start --task-id ID --today DD/MM --year YYYY --data-dir data
+check-wip         # quantas tasks estão em [~] e se pode iniciar mais
+sync-fixed        # injeta rotina.md do dia (chamado automaticamente pelo pipeline)
+store-feedback    # salva feedback da Vita (ver seção Feedback)
+rollover          # rollover semanal manual (chamado automaticamente aos domingos)
 ```
 
-## WhatsApp
+### Render (único que aceita `--format`)
 
 ```bash
-python3 scripts/cli.py render --today DD/MM --year YYYY --data-dir data \
+# padrão: WhatsApp → output/diarias.txt
+python3 scripts/cli.py render \
+  --today DD/MM --year YYYY --data-dir data \
   --output output/diarias.txt
 
-# opcional: forçar markdown explicitamente
-python3 scripts/cli.py render --today DD/MM --year YYYY --data-dir data \
+# opcional: markdown explícito
+python3 scripts/cli.py render \
+  --today DD/MM --year YYYY --data-dir data \
   --output output/diarias.md --format markdown
 ```
 
-## Teste
+`render` não altera o ledger — só lê o estado atual e escreve o arquivo.
+
+### Resumo semanal
 
 ```bash
-python3 scripts/test_core.py
+python3 scripts/cli.py weekly-summary \
+  --ledger data/historico/050426_110426_bruto.jsonl \
+  --format md  # ou json
 ```
+
+### Legado (não usar)
+
+`validate`, `summary`, `add`, `progress`, `complete`, `cancel`, `resort` — operam no formato markdown antigo (pré-ledger). Mantidos apenas por compatibilidade. **A Vita não deve invocar esses.**
+
+## Scoring 1-3-5
+
+**Fórmula:**
+
+```
+score = (urgency × 0.35)
+      + (complexity_invertida × 0.25)
+      + (age × 0.20)
+      − (postpone_penalty × 0.20)
+```
+
+Todos os componentes vão de 0 a 100. `complexity_invertida` = tarefas simples pontuam mais (quick wins sobem na fila).
+
+**Boosts TDAH:**
+- Task parada há mais de 21 dias: `+10`
+- Task adiada 3 vezes ou mais: `+15`
+
+**Faixas de tamanho (complexidade 1-10):**
+
+| Categoria | Faixa | Papel no 1-3-5 |
+|---|---|---|
+| Big 🔥 | 8-10 | 1 por dia (tarefa de bloco de foco) |
+| Medium ⚡ | 4-7 | 3 por dia |
+| Small ✅ | 1-3 | 5 por dia |
+
+Quando uma faixa fica vazia, o `suggest-daily` faz promoção/demoção automática pra preencher os slots com as próximas melhores candidatas.
+
+## WIP Limit
+
+Padrão: **2 tasks em `[~]`** simultaneamente.
+
+```bash
+python3 scripts/cli.py check-wip --today DD/MM --year YYYY --data-dir data
+python3 scripts/cli.py ledger-start --task-id ID --today DD/MM --year YYYY --data-dir data --limit 2
+```
+
+Se já houver 2 em andamento, `ledger-start` bloqueia com mensagem: *"Você já tem 2 tarefas em andamento. Que tal terminar uma antes de começar outra?"*
+
+## Convenções
+
+| Item | Regra |
+|---|---|
+| Semana | Domingo → sábado, timezone `America/Maceio` (UTC-3) |
+| IDs de task | `YYYYMMDD_slug`, com sufixo `_2`, `_3` se colidir |
+| IDs de dump | `YYYYMMDD_dump_NNN` (sequencial por dia) |
+| WIP padrão | 2 tasks em `[~]` |
+| Limpeza D+1 | Tasks concluídas/canceladas só aparecem no render **no próprio dia** — somem a partir do dia seguinte |
+| Rollover | Automático aos domingos quando o pipeline roda |
+
+## Testes
+
+```bash
+VITA_TEST_MODE=1 python3 scripts/test_core.py
+```
+
+A flag `VITA_TEST_MODE=1` ativa proteção anti-contaminação: se algum teste tentar escrever fora de path temporário, o `append_record` redireciona pra um arquivo `TEST_*` e emite warning.
 
 ## Arquivos-chave
 
-`scripts/cli.py`, `scripts/ledger.py`, `scripts/ledger_ops.py`, `scripts/pipeline.py`, `scripts/render.py`, `scripts/test_core.py`
+| Arquivo | Responsabilidade |
+|---|---|
+| `scripts/cli.py` | Interface de linha de comando |
+| `scripts/pipeline.py` | Orquestrador do fluxo diário |
+| `scripts/ledger.py` | Engine do ledger JSONL (leitura, merge, IDs) |
+| `scripts/ledger_ops.py` | Operações de negócio (CRUD, WIP, sync, feedback) |
+| `scripts/scoring.py` | Cálculo de score dinâmico |
+| `scripts/suggester.py` | Algoritmo 1-3-5 |
+| `scripts/render.py` | Montagem do TaskFile a partir do ledger |
+| `scripts/formatter_whatsapp.py` | Formato WhatsApp (padrão) |
+| `scripts/formatter.py` | Formato markdown (opcional) |
+| `scripts/test_core.py` | Suíte de testes |
