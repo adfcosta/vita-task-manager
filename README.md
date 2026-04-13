@@ -2,7 +2,7 @@
 
 Sistema de gerenciamento de tarefas pessoais com **ledger JSONL** como fonte de verdade, otimizado para TDAH.
 
-**Versão:** 2.6.0  
+**Versão:** 2.10.0  
 **Localização:** `/home/node/.openclaw/workspace/vita/skills/vita-task-manager/`
 
 ---
@@ -124,6 +124,28 @@ O sistema gera dois formatos de saída:
 | `store-feedback` | Salva feedback da Vita no ledger |
 | `execution-history` | Relatório de padrões de execução + word weights |
 | `rollover` | Rollover semanal manual |
+
+### Recorrência
+
+| Comando | Descrição |
+|---------|-----------|
+| `recurrence-detect` | Detecta padrões de recorrência no histórico |
+| `recurrence-activate` | Ativa regra de recorrência (diária ou semanal) |
+| `recurrence-deactivate` | Desativa regra existente (append-only) |
+| `recurrence-list` | Lista regras ativas |
+
+### Alertas
+
+| Comando | Descrição |
+|---------|-----------|
+| `check-alerts` | Inspeciona ledger e retorna alertas acionáveis (due_today, overdue, stalled, blocked) |
+
+### Automação
+
+| Comando | Descrição |
+|---------|-----------|
+| `daily-tick` | Pipeline + execution-history em uma invocação (idempotente) |
+| `weekly-tick` | Execution-history + recurrence-detect + ledger-status em uma invocação |
 
 ---
 

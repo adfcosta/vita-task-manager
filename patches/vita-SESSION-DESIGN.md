@@ -468,16 +468,16 @@ openclaw cron add \
 - Hook `message:received` para classificar intenções CRUD
 - `classifyIntent` via regex/keyword matching (sem LLM)
 - Mapear intenções CRUD para comandos CLI da Vita
-- Implementar `cli check-alerts` na Vita (único código novo)
+- `cli check-alerts` já implementado (v2.10.0) — pronto para uso pelo plugin
 - Respeitar Duplicate Guardrail (warnings escalam pra LLM)
 - **Ganho esperado: ~15-20% redução adicional**
-- **Esforço: plugin TypeScript (Plugin SDK) + 1 comando CLI novo**
+- **Esforço: plugin TypeScript (Plugin SDK) no Janus**
 
 ### Fase 3 — Ajuste fino (após 2 semanas de operação)
 
 - Analisar logs: quantas vezes a sessão expirou? Quantas compactações?
 - Ajustar `idleMinutes` e `ttl` baseado em dados reais
-- Avaliar se `check-alerts` no plugin justifica implementação
+- Avaliar eficácia do `check-alerts` no plugin (já implementado, medir uso real)
 - Revisar `classifyIntent` para reduzir falsos positivos/negativos
 
 ## Relação com Standing Orders
