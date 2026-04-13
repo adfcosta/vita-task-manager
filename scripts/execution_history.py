@@ -2,8 +2,12 @@
 
 Gera métricas de completion rate, análise por source, tasks mais
 adiadas e desempenho por dia da semana.
+Também gera word_weights.json para detecção inteligente de duplicatas.
 """
 
+import json
+import math
+import re as _re
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
@@ -284,6 +288,158 @@ TEMPLATE_HEADER = """# Histórico de Execução
 
 <!-- Espaço para anotações manuais. Não será sobrescrito pelo CLI. -->
 """.format(begin_marker=BEGIN_MARKER, end_marker=END_MARKER)
+
+
+# ---------------------------------------------------------------------------
+# Word weights — pesos por palavra para detecção inteligente de duplicatas
+# ---------------------------------------------------------------------------
+
+_STOPWORDS = frozenset({
+    "a", "o", "as", "os", "de", "do", "da", "dos", "das",
+    "em", "no", "na", "nos", "nas", "um", "uma", "uns", "umas",
+    "e", "ou", "com", "por", "para", "pra", "pro", "que", "se",
+})
+
+
+def _normalize_text(text: str) -> str:
+    """Normaliza acentos e caixa."""
+    text = text.lower().strip()
+    for old, new in [('á', 'a'), ('à', 'a'), ('â', 'a'), ('ã', 'a'),
+                     ('é', 'e'), ('ê', 'e'), ('í', 'i'), ('ó', 'o'),
+                     ('ô', 'o'), ('õ', 'o'), ('ú', 'u'), ('ç', 'c')]:
+        text = text.replace(old, new)
+    return text
+
+
+def _extract_words_for_weights(text: str) -> set[str]:
+    """Extrai palavras significativas (>=3 chars, sem stopwords)."""
+    words = set(_re.findall(r'[a-z0-9]+', _normalize_text(text)))
+    return {w for w in words - _STOPWORDS if len(w) >= 3}
+
+
+def _resolution_weight(task: dict) -> float:
+    """Peso baseado no tempo entre criação e conclusão.
+
+    Tasks rápidas (rotina) → peso baixo.
+    Tasks lentas ou nunca concluídas (evitação) → peso alto.
+    """
+    created = task.get("created_at")
+    completed = task.get("completed_at")
+
+    if not completed:
+        return 3.0  # nunca concluída
+
+    try:
+        created_dt = datetime.fromisoformat(created)
+        completed_dt = datetime.fromisoformat(completed)
+        hours = (completed_dt - created_dt).total_seconds() / 3600
+    except (TypeError, ValueError):
+        return 1.0  # dados incompletos → neutro
+
+    if hours <= 1:
+        return 0.5
+    elif hours <= 4:
+        return 1.0
+    elif hours <= 24:
+        return 1.5
+    elif hours <= 72:
+        return 2.0
+    else:
+        return 2.5
+
+
+def build_word_weights(
+    data_dir: Path,
+    today: date,
+    weeks: int = 12,
+    min_corpus: int = 15,
+) -> dict[str, Any]:
+    """Constrói pesos por palavra a partir do histórico do ledger.
+
+    Combina 3 fatores:
+    1. Distintividade — log IDF sobre tasks completadas
+    2. Evitação — postpone_count + taxa de conclusão
+    3. Resolução — tempo médio entre criação e conclusão
+
+    Retorna dict com metadata e weights.
+    """
+    tasks = _merge_all_tasks(data_dir, today, weeks)
+
+    if len(tasks) < min_corpus:
+        return {
+            "generated_at": datetime.now().replace(microsecond=0).isoformat(),
+            "corpus_size": len(tasks),
+            "min_corpus": min_corpus,
+            "weights": {},
+            "reason": f"Corpus insuficiente ({len(tasks)}/{min_corpus} tasks)",
+        }
+
+    # Indexa palavras → lista de tasks
+    word_tasks: dict[str, list[dict]] = {}
+    for task in tasks:
+        desc = task.get("description", "")
+        for word in _extract_words_for_weights(desc):
+            word_tasks.setdefault(word, []).append(task)
+
+    total_tasks = len(tasks)
+    completed_tasks = [t for t in tasks if t.get("status") == "[x]"]
+    total_completed = max(len(completed_tasks), 1)  # evita div/0
+
+    weights: dict[str, float] = {}
+
+    for word, associated_tasks in word_tasks.items():
+        n_total = len(associated_tasks)
+        n_completed = sum(1 for t in associated_tasks if t.get("status") == "[x]")
+        completion_rate = n_completed / n_total if n_total > 0 else 0.0
+        avg_postpone = (
+            sum(int(t.get("postpone_count") or 0) for t in associated_tasks)
+            / n_total
+        )
+
+        # Fator 1 — Distintividade (IDF sobre completadas)
+        completed_with_word = max(n_completed, 1)
+        distinctiveness = math.log(total_completed / completed_with_word + 1)
+
+        # Fator 2 — Evitação
+        avoidance = 1.0 + (1.0 - completion_rate) + min(avg_postpone / 5.0, 1.0)
+
+        # Fator 3 — Tempo de resolução (média)
+        res_weights = [_resolution_weight(t) for t in associated_tasks]
+        resolution = sum(res_weights) / len(res_weights)
+
+        combined = round(distinctiveness * avoidance * resolution, 2)
+        weights[word] = combined
+
+    return {
+        "generated_at": datetime.now().replace(microsecond=0).isoformat(),
+        "corpus_size": total_tasks,
+        "completed_count": total_completed,
+        "word_count": len(weights),
+        "weights": dict(sorted(weights.items(), key=lambda x: -x[1])),
+    }
+
+
+def write_word_weights(data_dir: Path, word_weights: dict[str, Any]) -> Path:
+    """Salva word_weights.json no data_dir."""
+    output_path = data_dir / "word_weights.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(word_weights, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return output_path
+
+
+def load_word_weights(data_dir: Path) -> dict[str, float]:
+    """Carrega pesos do word_weights.json. Retorna dict vazio se não existir."""
+    path = data_dir / "word_weights.json"
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data.get("weights", {})
+    except (json.JSONDecodeError, KeyError):
+        return {}
 
 
 def write_history_file(output_path: Path, history_markdown: str) -> None:
