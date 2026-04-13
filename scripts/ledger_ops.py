@@ -4,19 +4,27 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
+import re as _re
+
 try:
     from .ledger import (
+        _merge_task_records,
+        _parse_record_date,
         append_record,
         find_task,
         get_ledger_path,
+        get_week_start,
         load_ledger,
         make_task_id,
     )
 except ImportError:
     from ledger import (
+        _merge_task_records,
+        _parse_record_date,
         append_record,
         find_task,
         get_ledger_path,
+        get_week_start,
         load_ledger,
         make_task_id,
     )
@@ -47,6 +55,72 @@ def _compact_record(record: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in record.items() if v is not None}
 
 
+_STOPWORDS = frozenset({
+    "a", "o", "as", "os", "de", "do", "da", "dos", "das",
+    "em", "no", "na", "nos", "nas", "um", "uma", "uns", "umas",
+    "e", "ou", "com", "por", "para", "pra", "pro", "que", "se",
+})
+
+
+def _extract_words(text: str) -> set[str]:
+    """Extrai palavras significativas de um texto, removendo acentos e stopwords."""
+    text = text.lower().strip()
+    for old, new in [('á', 'a'), ('à', 'a'), ('â', 'a'), ('ã', 'a'),
+                     ('é', 'e'), ('ê', 'e'), ('í', 'i'), ('ó', 'o'),
+                     ('ô', 'o'), ('õ', 'o'), ('ú', 'u'), ('ç', 'c')]:
+        text = text.replace(old, new)
+    words = set(_re.findall(r'[a-z0-9]+', text))
+    return words - _STOPWORDS
+
+
+def _find_similar_open_tasks(
+    ledger: list[dict[str, Any]],
+    new_description: str,
+    today: date,
+) -> list[dict[str, Any]]:
+    """Encontra tasks abertas similares por intersecção de palavras.
+
+    Busca tasks abertas criadas hoje ou ontem cujas palavras significativas
+    tenham intersecção >= 50% com a nova descrição (nos dois sentidos).
+    """
+    new_words = _extract_words(new_description)
+    if not new_words:
+        return []
+
+    yesterday = today - timedelta(days=1)
+    merged = _merge_task_records(ledger)
+    similar = []
+
+    for task in merged.values():
+        status = task.get("status", "")
+        if status in ("[x]", "[-]"):
+            continue
+
+        created = _parse_record_date(task.get("created_at"))
+        if not created or created < yesterday:
+            continue
+
+        existing_words = _extract_words(task.get("description", ""))
+        if not existing_words:
+            continue
+
+        overlap = new_words & existing_words
+        if not overlap:
+            continue
+
+        # Intersecção precisa ser >= 50% em pelo menos uma direção
+        ratio_new = len(overlap) / len(new_words)
+        ratio_existing = len(overlap) / len(existing_words)
+
+        if ratio_new >= 0.5 or ratio_existing >= 0.5:
+            similar.append({
+                "task_id": task.get("id"),
+                "description": task.get("description"),
+            })
+
+    return similar
+
+
 def add_task(
     ledger_path: Path,
     description: str,
@@ -57,11 +131,23 @@ def add_task(
     due_date: Optional[str] = None,
     context: Optional[str] = None,
     carried_from: Optional[str] = None,
+    allow_duplicate: bool = False,
 ) -> dict[str, Any]:
     """Adiciona nova task ao ledger."""
     created_date = _date_from_ddmm(today_ddmm, year)
     ledger = load_ledger(ledger_path)
     task_id = make_task_id(description, created_date, ledger)
+
+    # Detecção de duplicatas (apenas warning, não bloqueia)
+    warning = None
+    if not allow_duplicate:
+        similar = _find_similar_open_tasks(ledger, description, created_date)
+        if similar:
+            warning = {
+                "type": "duplicate_suspect",
+                "similar_to": similar,
+                "hint": "Considere ledger-update em vez de criar task nova.",
+            }
 
     append_record(ledger_path, _compact_record({
         "type": "task",
@@ -80,12 +166,15 @@ def add_task(
         "score_breakdown": {},
     }))
 
-    return {
+    result: dict[str, Any] = {
         "ok": True,
         "action": "add",
         "task_id": task_id,
         "description": description,
     }
+    if warning:
+        result["warning"] = warning
+    return result
 
 
 def get_wip_count(tasks: list[dict[str, Any]]) -> int:

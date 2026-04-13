@@ -246,6 +246,7 @@ def cmd_ledger_add(args) -> int:
         source=args.source,
         due_date=args.due,
         context=args.context,
+        allow_duplicate=args.allow_duplicate,
     )
     _emit(result)
     return 0 if result["ok"] else 1
@@ -586,6 +587,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--source", choices=["rotina", "agenda_semana", "manual"], default="manual")
     p.add_argument("--due", help="Prazo (DD/MM)")
     p.add_argument("--context", help="Contexto")
+    p.add_argument("--allow-duplicate", action="store_true", help="Suprime warning de duplicata")
     p.set_defaults(func=cmd_ledger_add)
 
     p = sub.add_parser("ledger-progress", help="Atualiza progresso no ledger")
