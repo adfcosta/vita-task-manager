@@ -516,6 +516,130 @@ def cmd_ledger_status(args) -> int:
     return 0
 
 
+def _build_alerts(data_dir: Path, today, year: int) -> dict[str, Any]:
+    """Inspeciona o ledger e retorna alertas acionáveis (função pura, sem I/O de emit).
+
+    Alertas detectados:
+    - due_today: tasks com due_date = hoje
+    - overdue: tasks com due_date < hoje
+    - stalled: tasks em [~] há mais de 48h sem atualização
+    - blocked: tasks com postpone_count >= 3
+    """
+    try:
+        from .ledger import _merge_task_records, get_ledger_filename, get_week_start
+    except ImportError:
+        from ledger import _merge_task_records, get_ledger_filename, get_week_start
+
+    from datetime import datetime, timedelta
+
+    if isinstance(today, str):
+        today = _ddmm_to_date(today, year)
+
+    hist = data_dir / "historico"
+    ledger_path = hist / get_ledger_filename(today)
+
+    if not ledger_path.exists():
+        return {
+            "today": str(today),
+            "has_alerts": False,
+            "counts": {"due_today": 0, "overdue": 0, "stalled": 0, "blocked": 0},
+            "alerts": [],
+        }
+
+    ledger = load_ledger(ledger_path)
+    merged = _merge_task_records(ledger)
+
+    # Filtrar apenas tasks abertas ([ ] ou [~])
+    open_tasks = [t for t in merged.values() if t.get("status") in ("[ ]", "[~]")]
+
+    alerts: list[dict[str, Any]] = []
+    today_ddmm = f"{today.day:02d}/{today.month:02d}"
+
+    for task in open_tasks:
+        task_id = task.get("id", "?")
+        desc = task.get("description", "?")
+        due = task.get("due_date")
+        status = task.get("status", "[ ]")
+        postpone = int(task.get("postpone_count") or 0)
+
+        # Due today
+        if due and due == today_ddmm:
+            alerts.append({
+                "type": "due_today",
+                "task_id": task_id,
+                "description": desc,
+                "due_date": due,
+                "priority": task.get("priority"),
+            })
+
+        # Overdue (due_date < today)
+        if due:
+            try:
+                day, month = map(int, due.split("/"))
+                due_date = today.replace(month=month, day=day)
+                if due_date < today:
+                    alerts.append({
+                        "type": "overdue",
+                        "task_id": task_id,
+                        "description": desc,
+                        "due_date": due,
+                        "days_overdue": (today - due_date).days,
+                        "priority": task.get("priority"),
+                    })
+            except (ValueError, TypeError):
+                pass
+
+        # Stalled: [~] há mais de 48h sem atualização
+        if status == "[~]":
+            last_update = task.get("updated_at") or task.get("started_at") or task.get("created_at")
+            if last_update:
+                try:
+                    last_dt = datetime.fromisoformat(last_update)
+                    now = datetime.combine(today, datetime.min.time().replace(hour=23, minute=59))
+                    hours_since = (now - last_dt).total_seconds() / 3600
+                    if hours_since > 48:
+                        alerts.append({
+                            "type": "stalled",
+                            "task_id": task_id,
+                            "description": desc,
+                            "hours_since_update": round(hours_since),
+                            "last_update": last_update,
+                        })
+                except (ValueError, TypeError):
+                    pass
+
+        # Blocked: postpone_count >= 3
+        if postpone >= 3:
+            alerts.append({
+                "type": "blocked",
+                "task_id": task_id,
+                "description": desc,
+                "postpone_count": postpone,
+            })
+
+    counts = {
+        "due_today": len([a for a in alerts if a["type"] == "due_today"]),
+        "overdue": len([a for a in alerts if a["type"] == "overdue"]),
+        "stalled": len([a for a in alerts if a["type"] == "stalled"]),
+        "blocked": len([a for a in alerts if a["type"] == "blocked"]),
+    }
+
+    return {
+        "today": str(today),
+        "has_alerts": len(alerts) > 0,
+        "counts": counts,
+        "total": len(alerts),
+        "alerts": alerts,
+    }
+
+
+def cmd_check_alerts(args) -> int:
+    """Inspeciona o ledger e retorna alertas acionáveis."""
+    result = _build_alerts(Path(args.data_dir), _ddmm_to_date(args.today, args.year), args.year)
+    _emit(result, compact=False)
+    return 0
+
+
 def cmd_weekly_summary(args) -> int:
     summary = build_weekly_summary(Path(args.ledger))
     if args.output:
@@ -1131,6 +1255,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--year", type=int, required=True)
     p.add_argument("--data-dir", required=True)
     p.set_defaults(func=cmd_recurrence_list)
+
+    p = sub.add_parser("check-alerts", help="Inspeciona ledger e retorna alertas acionáveis")
+    p.add_argument("--today", required=True, help="Data de hoje (DD/MM)")
+    p.add_argument("--year", type=int, required=True)
+    p.add_argument("--data-dir", required=True)
+    p.set_defaults(func=cmd_check_alerts)
 
     p = sub.add_parser("daily-tick", help="Comando composto: pipeline + execution-history")
     p.add_argument("--today", required=True, help="Data de hoje (DD/MM)")

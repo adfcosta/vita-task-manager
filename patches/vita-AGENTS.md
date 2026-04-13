@@ -52,6 +52,7 @@ Toda operação usa a skill `vita-task-manager` através de seus comandos CLI.
 | Ver regras ativas | `cli recurrence-list` | Filtrar JSONL manualmente |
 | Tick diário | `cli daily-tick` | Rodar pipeline + execution-history separados |
 | Tick semanal | `cli weekly-tick` | Rodar execution-history + recurrence-detect + ledger-status separados |
+| Verificar alertas | `cli check-alerts` | Inspecionar ledger manualmente |
 
 ### Refinamento de tasks existentes
 
