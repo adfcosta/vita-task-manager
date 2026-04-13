@@ -1885,6 +1885,193 @@ def test_ledger_status_refactor_preserves_output():
         print("✓ test_ledger_status_refactor_preserves_output")
 
 
+def test_check_alerts_no_alerts():
+    """check-alerts sem alertas retorna has_alerts=False e lista vazia."""
+    from ledger import get_ledger_filename
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        _write_jsonl(ledger_file, [
+            _create_test_ledger_record("t1", "Task normal", "[ ]",
+                                       created_at="2026-04-13T09:00:00"),
+        ])
+
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from cli import _build_alerts
+        result = _build_alerts(data_dir, today, 2026)
+
+        assert result["has_alerts"] is False
+        assert result["total"] == 0
+        assert result["alerts"] == []
+        assert result["counts"]["due_today"] == 0
+        print("✓ test_check_alerts_no_alerts")
+
+
+def test_check_alerts_due_today():
+    """check-alerts detecta tasks com due_date = hoje."""
+    from ledger import get_ledger_filename
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        record = _create_test_ledger_record("t1", "Task urgente", "[ ]",
+                                             created_at="2026-04-13T09:00:00")
+        record["due_date"] = "13/04"
+        _write_jsonl(ledger_file, [record])
+
+        from cli import _build_alerts
+        result = _build_alerts(data_dir, today, 2026)
+
+        assert result["has_alerts"] is True
+        assert result["counts"]["due_today"] == 1
+        assert result["alerts"][0]["type"] == "due_today"
+        assert result["alerts"][0]["task_id"] == "t1"
+        print("✓ test_check_alerts_due_today")
+
+
+def test_check_alerts_overdue():
+    """check-alerts detecta tasks com due_date no passado."""
+    from ledger import get_ledger_filename
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        record = _create_test_ledger_record("t1", "Task atrasada", "[ ]",
+                                             created_at="2026-04-10T09:00:00")
+        record["due_date"] = "10/04"
+        _write_jsonl(ledger_file, [record])
+
+        from cli import _build_alerts
+        result = _build_alerts(data_dir, today, 2026)
+
+        assert result["has_alerts"] is True
+        assert result["counts"]["overdue"] == 1
+        overdue = [a for a in result["alerts"] if a["type"] == "overdue"][0]
+        assert overdue["days_overdue"] == 3
+        print("✓ test_check_alerts_overdue")
+
+
+def test_check_alerts_stalled():
+    """check-alerts detecta tasks em [~] paradas há mais de 48h."""
+    from ledger import get_ledger_filename
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        record = _create_test_ledger_record("t1", "Task parada", "[~]",
+                                             created_at="2026-04-10T08:00:00")
+        record["started_at"] = "2026-04-10T08:00:00"
+        _write_jsonl(ledger_file, [record])
+
+        from cli import _build_alerts
+        result = _build_alerts(data_dir, today, 2026)
+
+        assert result["has_alerts"] is True
+        assert result["counts"]["stalled"] == 1
+        stalled = [a for a in result["alerts"] if a["type"] == "stalled"][0]
+        assert stalled["hours_since_update"] > 48
+        print("✓ test_check_alerts_stalled")
+
+
+def test_check_alerts_blocked():
+    """check-alerts detecta tasks com postpone_count >= 3."""
+    from ledger import get_ledger_filename
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        _write_jsonl(ledger_file, [
+            _create_test_ledger_record("t1", "Task bloqueada", "[ ]",
+                                       created_at="2026-04-06T09:00:00",
+                                       postpone_count=4),
+        ])
+
+        from cli import _build_alerts
+        result = _build_alerts(data_dir, today, 2026)
+
+        assert result["has_alerts"] is True
+        assert result["counts"]["blocked"] == 1
+        blocked = [a for a in result["alerts"] if a["type"] == "blocked"][0]
+        assert blocked["postpone_count"] == 4
+        print("✓ test_check_alerts_blocked")
+
+
+def test_check_alerts_multiple():
+    """check-alerts com múltiplos alertas simultâneos conta corretamente."""
+    from ledger import get_ledger_filename
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+
+        r1 = _create_test_ledger_record("t1", "Vence hoje", "[ ]",
+                                         created_at="2026-04-12T09:00:00")
+        r1["due_date"] = "13/04"
+
+        r2 = _create_test_ledger_record("t2", "Atrasada e bloqueada", "[ ]",
+                                         created_at="2026-04-06T09:00:00",
+                                         postpone_count=5)
+        r2["due_date"] = "08/04"
+
+        r3 = _create_test_ledger_record("t3", "Em progresso parada", "[~]",
+                                         created_at="2026-04-09T08:00:00")
+        r3["started_at"] = "2026-04-09T10:00:00"
+
+        r4 = _create_test_ledger_record("t4", "Task completada", "[x]",
+                                         created_at="2026-04-06T09:00:00",
+                                         completed_at="2026-04-12T17:00:00")
+        r4["due_date"] = "10/04"  # vencida mas completada — NÃO deve gerar alerta
+
+        _write_jsonl(ledger_file, [r1, r2, r3, r4])
+
+        from cli import _build_alerts
+        result = _build_alerts(data_dir, today, 2026)
+
+        assert result["has_alerts"] is True
+        assert result["counts"]["due_today"] == 1
+        assert result["counts"]["overdue"] == 1
+        assert result["counts"]["stalled"] == 1
+        assert result["counts"]["blocked"] == 1
+        # t1=due_today, t2=overdue+blocked, t3=stalled, t4=nada (completada)
+        assert result["total"] == 4
+        print("✓ test_check_alerts_multiple")
+
+
+def test_check_alerts_cli():
+    """check-alerts funciona via CLI e retorna JSON válido."""
+    from ledger import get_ledger_filename
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        record = _create_test_ledger_record("t1", "Task urgente", "[ ]",
+                                             created_at="2026-04-13T09:00:00")
+        record["due_date"] = "13/04"
+        _write_jsonl(ledger_file, [record])
+
+        result = subprocess.run(
+            [sys.executable, str(CLI_PATH), "check-alerts",
+             "--today", "13/04", "--year", "2026",
+             "--data-dir", str(data_dir)],
+            capture_output=True, text=True,
+            env={**__import__("os").environ, "VITA_TEST_MODE": "1"},
+        )
+        assert result.returncode == 0, f"CLI falhou: {result.stderr}"
+        payload = json.loads(result.stdout)
+        assert payload["has_alerts"] is True
+        assert payload["counts"]["due_today"] == 1
+        assert "alerts" in payload
+        print("✓ test_check_alerts_cli")
+
+
 def run_all_tests():
     """Executa todos os testes."""
     print('\n=== Testes vita-task-manager ===\n')
@@ -1949,6 +2136,13 @@ def run_all_tests():
     test_weekly_tick_success()
     test_weekly_tick_includes_status()
     test_ledger_status_refactor_preserves_output()
+    test_check_alerts_no_alerts()
+    test_check_alerts_due_today()
+    test_check_alerts_overdue()
+    test_check_alerts_stalled()
+    test_check_alerts_blocked()
+    test_check_alerts_multiple()
+    test_check_alerts_cli()
     print('\n✓ Todos os testes passaram!\n')
 
 

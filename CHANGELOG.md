@@ -5,6 +5,22 @@ Todas as mudanças notáveis desta skill serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [2.10.0] - 2026-04-13
+
+### Adicionado
+- **`check-alerts`:** Novo comando CLI que inspeciona o ledger e retorna
+  alertas acionáveis em JSON: tasks vencendo hoje (`due_today`), vencidas
+  (`overdue` com `days_overdue`), em progresso paradas há >48h (`stalled`),
+  e bloqueadas com `postpone_count >= 3` (`blocked`)
+- Função pura `_build_alerts` extraída para reuso interno
+- 7 novos testes cobrindo todos os tipos de alerta + CLI (68 testes total)
+- Linha na tabela de governança em `vita-AGENTS.md`
+- Documentação do comando na seção Apoio do SKILL.md
+
+### Notas
+- Único código novo previsto na Fase 2 do `vita-SESSION-DESIGN.md`
+- Projetado para execução local pelo Plugin SDK do Janus (zero tokens)
+
 ## [2.9.0] - 2026-04-13
 
 ### Adicionado

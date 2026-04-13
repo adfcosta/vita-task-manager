@@ -284,6 +284,24 @@ python3 scripts/cli.py ledger-status \
 
 Retorna JSON com estado de saúde: semana atual/anterior, tasks abertas, rollover pendente, issues detectados. Use quando suspeitar de problemas no ledger (tasks sumindo, rollover perdido, etc.).
 
+### Alertas
+
+```bash
+python3 scripts/cli.py check-alerts \
+  --today DD/MM --year YYYY --data-dir data
+```
+
+Inspeciona o ledger e retorna JSON com alertas acionáveis:
+
+| Tipo | Condição |
+|---|---|
+| `due_today` | Task com `due_date` = hoje |
+| `overdue` | Task com `due_date` no passado (inclui `days_overdue`) |
+| `stalled` | Task em `[~]` há mais de 48h sem atualização |
+| `blocked` | Task com `postpone_count >= 3` |
+
+Retorna `has_alerts: true/false`, contagens por tipo em `counts`, e lista detalhada em `alerts`. Projetado para ser chamado pelo Plugin SDK do Janus sem gastar tokens de LLM (execução local via `execSync`). Ver `patches/vita-SESSION-DESIGN.md` para o design completo.
+
 ### Detecção de duplicatas
 
 O `ledger-add` detecta automaticamente tasks similares e retorna `warning.type == "duplicate_suspect"` quando encontra.
