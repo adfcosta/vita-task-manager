@@ -408,6 +408,54 @@ VITA_TEST_MODE=1 python3 scripts/test_core.py
 
 A flag `VITA_TEST_MODE=1` ativa proteção anti-contaminação: se algum teste tentar escrever fora de path temporário, o `append_record` redireciona pra um arquivo `TEST_*` e emite warning.
 
+## Automação
+
+A skill é projetada para rodar via cron. Os comandos compostos `daily-tick` e `weekly-tick` agregam os sub-passos típicos de cada cadência em uma única invocação com JSON agregado.
+
+### daily-tick
+
+Executa pipeline do dia e refresh de execution-history + word_weights. Idempotente. Rode de manhã antes do dia começar.
+
+```bash
+python3 scripts/cli.py daily-tick \
+  --today 13/04 --year 2026 \
+  --rotina input/rotina.md \
+  --agenda-semana input/agenda-semana.md \
+  --data-dir data \
+  --output output/diarias.txt \
+  --history-output data/historico-execucao.md
+```
+
+Retorna JSON com `ok`, `steps.pipeline`, `steps.execution_history`. Exit code 0 se ambos sub-passos ok, 1 se qualquer um falhou.
+
+### weekly-tick
+
+Executa refresh de execution-history, detecção de candidatos a recorrência e diagnóstico do ledger. Rode domingo à noite ou segunda de manhã.
+
+```bash
+python3 scripts/cli.py weekly-tick \
+  --today 13/04 --year 2026 \
+  --data-dir data \
+  --history-output data/historico-execucao.md
+```
+
+Retorna JSON com `ok`, `steps.execution_history`, `steps.recurrence_candidates`, `steps.ledger_status`.
+
+### Exemplo: cron do OS (Linux/macOS)
+
+Crontab:
+```
+# Daily tick às 06:00
+0 6 * * * cd /caminho/para/vita-task-manager && python3 scripts/cli.py daily-tick --today $(date +\%d/\%m) --year $(date +\%Y) --rotina input/rotina.md --agenda-semana input/agenda-semana.md --data-dir data --output output/diarias.txt --history-output data/historico-execucao.md >> /tmp/vita-daily.log 2>&1
+
+# Weekly tick domingo 20:00
+0 20 * * 0 cd /caminho/para/vita-task-manager && python3 scripts/cli.py weekly-tick --today $(date +\%d/\%m) --year $(date +\%Y) --data-dir data --history-output data/historico-execucao.md >> /tmp/vita-weekly.log 2>&1
+```
+
+### Exemplo: OpenClaw cron
+
+Standing orders da Vita podem disparar os tick commands via cron do OpenClaw. Ver `patches/vita-AGENTS.md` para a tabela de governança que lista os comandos compostos.
+
 ## Arquivos-chave
 
 | Arquivo | Responsabilidade |
