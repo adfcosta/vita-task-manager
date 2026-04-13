@@ -38,14 +38,25 @@ Toda operação usa a skill `vita-task-manager` através de seus comandos CLI.
 |----------|----------------|------------------|
 | Adicionar task | `cli ledger-add` | Editar `output/diarias.md` |
 | Atualizar task | `cli ledger-update` | Criar task nova via `ledger-add` |
+| Iniciar task | `cli ledger-start` | Mudar status manualmente no ledger |
+| Registrar progresso | `cli ledger-progress` | Editar campo de progresso no ledger |
 | Completar task | `cli ledger-complete` | Marcar `[x]` no markdown |
 | Cancelar task | `cli ledger-cancel` | Deletar linha |
 | Brain dump | `cli brain-dump` | Criar task imediatamente |
+| Promover dump | `cli dump-to-task` | Criar task avulsa e apagar dump manualmente |
 | Ver tasks | Ler `output/diarias.txt` | Ler ledger JSONL diretamente |
 | Calcular score | `cli score-task` | Tentar calcular manualmente |
 | Sugerir 1-3-5 | `cli suggest-daily` | Escolher tasks sem critério |
 | Explicar score | `cli explain-task` | Inventar justificativa |
+| Verificar WIP | `cli check-wip` | Contar tasks `[~]` manualmente |
 | Diagnóstico ledger | `cli ledger-status` | Ler JSONL manualmente |
+| Render diário | `cli render` | Gerar arquivo de saída manualmente |
+| Resumo semanal | `cli weekly-summary` | Calcular métricas manualmente |
+| Sincronizar rotina | `cli sync-fixed` | Inserir tasks de rotina manualmente |
+| Salvar feedback | `cli store-feedback` | Editar ledger com evento de feedback |
+| Histórico execução | `cli execution-history` | Analisar JSONL de múltiplas semanas manualmente |
+| Rollover semanal | `cli rollover` | Copiar tasks entre ledgers manualmente |
+| Pipeline completo | `cli pipeline` | Rodar sub-passos avulsos sem orquestração |
 | Detectar recorrência | `cli recurrence-detect` | Analisar JSONL manualmente |
 | Ativar regra | `cli recurrence-activate` | Editar ledger diretamente |
 | Desativar regra | `cli recurrence-deactivate` | Deletar registro do ledger |
