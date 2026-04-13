@@ -18,6 +18,7 @@ try:
         store_feedback as ledger_store_feedback,
         sync_fixed_agenda,
         update_progress as ledger_update_progress,
+        update_task as ledger_update_task,
     )
     from .models import Task
     from .parser import parse_task_file
@@ -50,6 +51,7 @@ except ImportError:
         store_feedback as ledger_store_feedback,
         sync_fixed_agenda,
         update_progress as ledger_update_progress,
+        update_task as ledger_update_task,
     )
     from models import Task
     from parser import parse_task_file
@@ -284,6 +286,21 @@ def cmd_ledger_cancel(args) -> int:
         task_id=_resolve_task_id(ledger_path, args.description, args.task_id, args.today, args.year),
         reason=args.reason,
         today_ddmm=args.today,
+    )
+    _emit(result)
+    return 0 if result["ok"] else 1
+
+
+def cmd_ledger_update(args) -> int:
+    ledger_path = get_ledger_path(args.today, args.year, Path(args.data_dir))
+    result = ledger_update_task(
+        ledger_path=ledger_path,
+        task_id=_resolve_task_id(ledger_path, args.description, args.task_id, args.today, args.year),
+        today_ddmm=args.today,
+        description=args.new_description,
+        context=args.context,
+        priority=args.priority,
+        due_date=args.due,
     )
     _emit(result)
     return 0 if result["ok"] else 1
@@ -615,6 +632,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--year", type=int, required=True)
     p.add_argument("--data-dir", required=True)
     p.set_defaults(func=cmd_ledger_cancel)
+
+    p = sub.add_parser("ledger-update", help="Atualiza campos de task existente")
+    p.add_argument("--task-id", help="ID da task")
+    p.add_argument("--description", help="Descrição para resolver ID")
+    p.add_argument("--new-description", help="Nova descrição")
+    p.add_argument("--context", help="Novo contexto")
+    p.add_argument("--priority", choices=["🔴", "🟡", "🟢"], help="Nova prioridade")
+    p.add_argument("--due", help="Novo prazo (DD/MM)")
+    p.add_argument("--today", required=True)
+    p.add_argument("--year", type=int, required=True)
+    p.add_argument("--data-dir", required=True)
+    p.set_defaults(func=cmd_ledger_update)
 
     p = sub.add_parser("ledger-start", help="Inicia task respeitando WIP")
     p.add_argument("--task-id", help="ID da task")

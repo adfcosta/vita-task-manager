@@ -27,6 +27,7 @@ try:
         start_task,
         sync_fixed_agenda,
         update_progress,
+        update_task,
     )
     from .models import BrainDumpEntry, SuggestedTask, Task, TaskFile
     from .render import render_daily
@@ -59,6 +60,7 @@ except ImportError:
         start_task,
         sync_fixed_agenda,
         update_progress,
+        update_task,
     )
     from models import BrainDumpEntry, SuggestedTask, Task, TaskFile
     from render import render_daily
@@ -690,6 +692,97 @@ def test_execution_history_cli():
         print('✓ test_execution_history_cli')
 
 
+def test_ledger_update_fields():
+    """ledger-update deve alterar campos sem criar duplicata."""
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        ledger_path = get_ledger_path(date(2026, 4, 12), 2026, data_dir)
+
+        created = add_task(ledger_path, 'Encontrar contrato de aluguel', '🟡', '12/04', 2026, context='juridico')
+        task_id = created['task_id']
+
+        # Atualiza context
+        result = update_task(ledger_path, task_id, '12/04', context='jurídico residencial')
+        assert result['ok'] is True
+        assert result['updated_fields'] == ['context']
+
+        state = get_current_task_state(load_ledger(ledger_path), task_id)
+        assert state['context'] == 'jurídico residencial'
+        assert state['description'] == 'Encontrar contrato de aluguel'
+
+        # Atualiza description e priority ao mesmo tempo
+        result2 = update_task(ledger_path, task_id, '12/04', description='Encontrar contrato', priority='🔴')
+        assert result2['ok'] is True
+        assert set(result2['updated_fields']) == {'description', 'priority'}
+
+        state2 = get_current_task_state(load_ledger(ledger_path), task_id)
+        assert state2['description'] == 'Encontrar contrato'
+        assert state2['priority'] == '🔴'
+        assert state2['context'] == 'jurídico residencial'  # intacto
+
+        print('✓ test_ledger_update_fields')
+
+
+def test_ledger_update_not_found():
+    """ledger-update em task inexistente retorna erro."""
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        ledger_path = get_ledger_path(date(2026, 4, 12), 2026, data_dir)
+
+        result = update_task(ledger_path, 'inexistente_123', '12/04', description='Nova')
+        assert result['ok'] is False
+        assert 'não encontrada' in result['error'].lower() or 'não encontrada' in result['error']
+
+        print('✓ test_ledger_update_not_found')
+
+
+def test_ledger_update_no_fields():
+    """ledger-update sem campos retorna erro."""
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        ledger_path = get_ledger_path(date(2026, 4, 12), 2026, data_dir)
+
+        add_task(ledger_path, 'Task qualquer', '🟡', '12/04', 2026)
+
+        result = update_task(ledger_path, '20260412_task_qualquer', '12/04')
+        assert result['ok'] is False
+        assert 'nenhum campo' in result['error'].lower()
+
+        print('✓ test_ledger_update_no_fields')
+
+
+def test_ledger_update_cli():
+    """CLI ledger-update deve funcionar via subprocess."""
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        ledger_path = get_ledger_path(date(2026, 4, 12), 2026, data_dir)
+
+        add_task(ledger_path, 'Avaliar contrato', '🟡', '12/04', 2026, context='juridico')
+
+        result = subprocess.run(
+            [
+                sys.executable, str(CLI_PATH), 'ledger-update',
+                '--task-id', '20260412_avaliar_contrato',
+                '--context', 'jurídico residencial',
+                '--today', '12/04',
+                '--year', '2026',
+                '--data-dir', str(data_dir),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        payload = json.loads(result.stdout)
+        assert payload['ok'] is True
+        assert 'context' in payload['updated_fields']
+
+        state = get_current_task_state(load_ledger(ledger_path), '20260412_avaliar_contrato')
+        assert state['context'] == 'jurídico residencial'
+        assert state['description'] == 'Avaliar contrato'
+
+        print('✓ test_ledger_update_cli')
+
+
 def run_all_tests():
     """Executa todos os testes."""
     print('\n=== Testes vita-task-manager ===\n')
@@ -716,6 +809,10 @@ def run_all_tests():
     test_execution_history_render_markdown()
     test_execution_history_write_preserves_observations()
     test_execution_history_cli()
+    test_ledger_update_fields()
+    test_ledger_update_not_found()
+    test_ledger_update_no_fields()
+    test_ledger_update_cli()
     print('\n✓ Todos os testes passaram!\n')
 
 
