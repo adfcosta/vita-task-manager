@@ -5,6 +5,19 @@ Todas as mudanças notáveis desta skill serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [2.7.0] - 2026-04-13
+
+### Adicionado
+- **`daily-tick`:** Comando composto que roda `pipeline` + `execution-history` + `word_weights` em sequência, com relatório unificado de sucesso/falha por passo
+- **`weekly-tick`:** Comando composto que roda `execution-history` + `recurrence-detect` + `ledger-status` em sequência, com relatório unificado
+- **`_build_ledger_status`:** Função pura extraída de `cmd_ledger_status` para reuso interno (usado por `weekly-tick`)
+- 5 novos testes cobrindo daily-tick, weekly-tick e refactor do ledger-status (61 testes total)
+- Seção "Automação" no SKILL.md com exemplos de crontab
+
+### Mudado
+- `cmd_ledger_status` refatorado: lógica movida para `_build_ledger_status`, comando agora é thin wrapper
+- Tabela de governança em `vita-AGENTS.md` atualizada com tick commands
+
 ## [2.6.1] - 2026-04-13
 
 ### Adicionado

@@ -387,8 +387,8 @@ def cmd_rollover(args) -> int:
     return 0
 
 
-def cmd_ledger_status(args) -> int:
-    """Diagnóstico do estado atual do ledger."""
+def _build_ledger_status(data_dir: Path, today, year: int) -> dict[str, Any]:
+    """Constrói dict de diagnóstico do ledger (função pura, sem I/O de emit)."""
     try:
         from .ledger import (
             _merge_task_records,
@@ -406,10 +406,11 @@ def cmd_ledger_status(args) -> int:
             get_week_start,
         )
 
-    from datetime import timedelta
+    from datetime import date as date_type, timedelta
 
-    data_dir = Path(args.data_dir)
-    today = _ddmm_to_date(args.today, args.year)
+    if isinstance(today, str):
+        today = _ddmm_to_date(today, year)
+
     hist = data_dir / "historico"
 
     current_sunday = get_week_start(today)
@@ -495,7 +496,6 @@ def cmd_ledger_status(args) -> int:
             issues.append(f"Rollover pendente: {len(pending)} tasks da semana anterior não foram migradas")
     if result["current_ledger"] and result["current_ledger"]["carried_from_previous"] == 0 and prev_path.exists():
         prev_pending = get_carry_over_tasks(load_ledger(prev_path))
-        # Verifica se o ledger anterior tem tasks que não foram rolled over
         has_rollover_ops = any(
             r.get("_operation") == "rollover"
             for r in load_ledger(prev_path)
@@ -506,6 +506,12 @@ def cmd_ledger_status(args) -> int:
     result["issues"] = issues
     result["healthy"] = len(issues) == 0
 
+    return result
+
+
+def cmd_ledger_status(args) -> int:
+    """Diagnóstico do estado atual do ledger."""
+    result = _build_ledger_status(Path(args.data_dir), _ddmm_to_date(args.today, args.year), args.year)
     _emit(result, compact=False)
     return 0
 
@@ -734,6 +740,133 @@ def cmd_recurrence_list(args) -> int:
         "count": len(rules),
     })
     return 0
+
+
+def cmd_daily_tick(args) -> int:
+    """Roda pipeline do dia + execution-history + word_weights.
+
+    Agrega resultado em JSON único com ok=all sub-steps ok.
+    Sub-falhas não interrompem o fluxo — cada passo é reportado
+    independentemente.
+    """
+    results = {}
+    overall_ok = True
+
+    # Passo 1: pipeline (pipeline já roda sync-fixed, store-feedback, render)
+    try:
+        pipeline_result = daily_pipeline(
+            today_ddmm=args.today,
+            year=args.year,
+            rotina_path=Path(args.rotina),
+            agenda_semana_path=Path(args.agenda_semana) if args.agenda_semana else None,
+            data_dir=Path(args.data_dir),
+            output_path=Path(args.output),
+            force_refresh=args.force_feedback,
+        )
+        results["pipeline"] = {**pipeline_result, "ok": True}
+        if not pipeline_result.get("ok", True):
+            overall_ok = False
+    except Exception as exc:
+        results["pipeline"] = {"ok": False, "error": str(exc)}
+        overall_ok = False
+
+    # Passo 2: execution-history (refresh de histórico + word_weights)
+    try:
+        data_dir = Path(args.data_dir)
+        today = _ddmm_to_date(args.today, args.year)
+        history = build_execution_history(data_dir, today, args.history_weeks)
+        md = render_history_markdown(history)
+        history_output = Path(args.history_output)
+        write_history_file(history_output, md)
+        ww = build_word_weights(data_dir, today, weeks=max(args.history_weeks, 12))
+        ww_path = write_word_weights(data_dir, ww)
+        results["execution_history"] = {
+            "ok": True,
+            "output": str(history_output),
+            "weeks_analyzed": args.history_weeks,
+            "word_weights_path": str(ww_path),
+            "word_weights_count": ww.get("word_count", 0),
+        }
+    except Exception as exc:
+        results["execution_history"] = {"ok": False, "error": str(exc)}
+        overall_ok = False
+
+    _emit({
+        "ok": overall_ok,
+        "action": "daily_tick",
+        "today": args.today,
+        "steps": results,
+    })
+    return 0 if overall_ok else 1
+
+
+def cmd_weekly_tick(args) -> int:
+    """Refresh semanal: execution-history + recurrence-detect + ledger-status.
+
+    Projetado pra rodar domingo à noite (ou qualquer dia). Retorna
+    JSON agregado com:
+    - execution_history: path do markdown e contagem de weights
+    - recurrence_candidates: lista de candidatos detectados
+    - ledger_status: healthy + issues
+
+    Sub-falhas não interrompem — cada passo reportado independente.
+    """
+    results = {}
+    overall_ok = True
+    data_dir = Path(args.data_dir)
+    today = _ddmm_to_date(args.today, args.year)
+
+    # Passo 1: execution-history (full refresh)
+    try:
+        history = build_execution_history(data_dir, today, args.history_weeks)
+        md = render_history_markdown(history)
+        history_output = Path(args.history_output)
+        write_history_file(history_output, md)
+        ww = build_word_weights(data_dir, today, weeks=max(args.history_weeks, 12))
+        ww_path = write_word_weights(data_dir, ww)
+        results["execution_history"] = {
+            "ok": True,
+            "output": str(history_output),
+            "weeks_analyzed": args.history_weeks,
+            "word_weights_path": str(ww_path),
+            "word_weights_count": ww.get("word_count", 0),
+        }
+    except Exception as exc:
+        results["execution_history"] = {"ok": False, "error": str(exc)}
+        overall_ok = False
+
+    # Passo 2: recurrence-detect
+    try:
+        candidates = detect_recurrence_candidates(
+            data_dir=data_dir,
+            today=today,
+            min_occurrences=args.min_occurrences,
+            lookback_weeks=args.recurrence_weeks,
+        )
+        results["recurrence_candidates"] = {
+            "ok": True,
+            "count": len(candidates),
+            "candidates": candidates,
+        }
+    except Exception as exc:
+        results["recurrence_candidates"] = {"ok": False, "error": str(exc)}
+        overall_ok = False
+
+    # Passo 3: ledger-status
+    try:
+        status = _build_ledger_status(data_dir, today, args.year)
+        results["ledger_status"] = status
+    except Exception as exc:
+        results["ledger_status"] = {"ok": False, "error": str(exc)}
+        overall_ok = False
+
+    _emit({
+        "ok": overall_ok,
+        "action": "weekly_tick",
+        "today": args.today,
+        "steps": results,
+    }, compact=False)
+    return 0 if overall_ok else 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -998,6 +1131,28 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--year", type=int, required=True)
     p.add_argument("--data-dir", required=True)
     p.set_defaults(func=cmd_recurrence_list)
+
+    p = sub.add_parser("daily-tick", help="Comando composto: pipeline + execution-history")
+    p.add_argument("--today", required=True, help="Data de hoje (DD/MM)")
+    p.add_argument("--year", type=int, required=True)
+    p.add_argument("--rotina", required=True, help="Caminho de rotina.md")
+    p.add_argument("--agenda-semana", help="Caminho de agenda_da_semana.md")
+    p.add_argument("--data-dir", required=True)
+    p.add_argument("--output", required=True, help="Caminho do diarias.txt")
+    p.add_argument("--history-output", required=True, help="Caminho do historico-execucao.md")
+    p.add_argument("--history-weeks", type=int, default=4)
+    p.add_argument("--force-feedback", action="store_true")
+    p.set_defaults(func=cmd_daily_tick)
+
+    p = sub.add_parser("weekly-tick", help="Comando composto: execution-history + recurrence + status")
+    p.add_argument("--today", required=True)
+    p.add_argument("--year", type=int, required=True)
+    p.add_argument("--data-dir", required=True)
+    p.add_argument("--history-output", required=True)
+    p.add_argument("--history-weeks", type=int, default=4)
+    p.add_argument("--min-occurrences", type=int, default=5)
+    p.add_argument("--recurrence-weeks", type=int, default=4)
+    p.set_defaults(func=cmd_weekly_tick)
 
     return parser
 

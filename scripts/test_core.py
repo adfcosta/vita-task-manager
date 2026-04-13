@@ -1691,6 +1691,200 @@ def test_cli_recurrence_activate_and_deactivate():
         print("✓ test_cli_recurrence_activate_and_deactivate")
 
 
+def test_daily_tick_success():
+    """daily-tick com ambos sub-steps ok retorna JSON agregado com ok=True."""
+    rotina_content = """# Rotina
+
+## Tarefas Diárias
+- 06:00 | Meditação
+"""
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        rotina_path = data_dir / "rotina.md"
+        rotina_path.write_text(rotina_content, encoding="utf-8")
+        output = Path(tmp) / "diarias.txt"
+        history_output = Path(tmp) / "historico-execucao.md"
+        ledger_path = get_ledger_path(date(2026, 4, 13), 2026, data_dir)
+        add_task(ledger_path, "Task teste tick", "🟡", "13/04", 2026)
+
+        result = subprocess.run(
+            [
+                sys.executable, str(CLI_PATH), "daily-tick",
+                "--today", "13/04", "--year", "2026",
+                "--rotina", str(rotina_path),
+                "--data-dir", str(data_dir),
+                "--output", str(output),
+                "--history-output", str(history_output),
+                "--history-weeks", "1",
+            ],
+            capture_output=True, text=True,
+            env={**__import__("os").environ, "VITA_TEST_MODE": "1"},
+        )
+        assert result.returncode == 0, f"daily-tick falhou: {result.stderr}"
+        payload = json.loads(result.stdout)
+        assert payload["ok"] is True
+        assert payload["action"] == "daily_tick"
+        assert payload["steps"]["pipeline"]["ok"] is not False
+        assert payload["steps"]["execution_history"]["ok"] is True
+        assert output.exists(), "diarias.txt deveria existir"
+        assert history_output.exists(), "historico-execucao.md deveria existir"
+        print("✓ test_daily_tick_success")
+
+
+def test_daily_tick_partial_failure():
+    """daily-tick com pipeline falhando mas execution-history ok retorna ok=False."""
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        rotina_path = data_dir / "rotina.md"
+        rotina_path.write_text("## 06:00 - Acordar\n- Tomar água\n", encoding="utf-8")
+        # Cria DIRETÓRIO onde o output file deveria ser escrito → pipeline crash no write_text
+        output = Path(tmp) / "diarias.txt"
+        output.mkdir()
+        history_output = Path(tmp) / "historico-execucao.md"
+
+        result = subprocess.run(
+            [
+                sys.executable, str(CLI_PATH), "daily-tick",
+                "--today", "13/04", "--year", "2026",
+                "--rotina", str(rotina_path),
+                "--data-dir", str(data_dir),
+                "--output", str(output),
+                "--history-output", str(history_output),
+                "--history-weeks", "1",
+            ],
+            capture_output=True, text=True,
+            env={**__import__("os").environ, "VITA_TEST_MODE": "1"},
+        )
+        payload = json.loads(result.stdout)
+        assert payload["ok"] is False, "overall ok deveria ser False quando pipeline falha"
+        assert payload["steps"]["pipeline"]["ok"] is False
+        assert "error" in payload["steps"]["pipeline"]
+        # execution-history ainda roda (independente)
+        assert payload["steps"]["execution_history"]["ok"] is True
+        print("✓ test_daily_tick_partial_failure")
+
+
+def test_weekly_tick_success():
+    """weekly-tick com todos sub-steps ok retorna JSON agregado com ok=True."""
+    from ledger import get_ledger_filename
+
+    today = date(2026, 4, 13)
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        history_output = Path(tmp) / "historico-execucao.md"
+
+        # Cria ledger com ao menos uma task pra ter dados
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        _write_jsonl(ledger_file, [
+            _create_test_ledger_record("t1", "Task semanal", "[x]", "manual",
+                                       "2026-04-12T09:00:00", "2026-04-12",
+                                       completed_at="2026-04-12T17:00:00"),
+        ])
+
+        result = subprocess.run(
+            [
+                sys.executable, str(CLI_PATH), "weekly-tick",
+                "--today", "13/04", "--year", "2026",
+                "--data-dir", str(data_dir),
+                "--history-output", str(history_output),
+                "--history-weeks", "1",
+                "--min-occurrences", "99",
+                "--recurrence-weeks", "1",
+            ],
+            capture_output=True, text=True,
+            env={**__import__("os").environ, "VITA_TEST_MODE": "1"},
+        )
+        assert result.returncode == 0, f"weekly-tick falhou: {result.stderr}"
+        payload = json.loads(result.stdout)
+        assert payload["ok"] is True
+        assert payload["action"] == "weekly_tick"
+        assert "execution_history" in payload["steps"]
+        assert "recurrence_candidates" in payload["steps"]
+        assert "ledger_status" in payload["steps"]
+        assert payload["steps"]["execution_history"]["ok"] is True
+        assert payload["steps"]["recurrence_candidates"]["ok"] is True
+        print("✓ test_weekly_tick_success")
+
+
+def test_weekly_tick_includes_status():
+    """weekly-tick steps.ledger_status tem campos healthy, issues, current_week, previous_week."""
+    from ledger import get_ledger_filename
+
+    today = date(2026, 4, 13)
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        history_output = Path(tmp) / "historico-execucao.md"
+
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        _write_jsonl(ledger_file, [
+            _create_test_ledger_record("t1", "Task status", "[ ]", "manual",
+                                       "2026-04-13T09:00:00", "2026-04-13"),
+        ])
+
+        result = subprocess.run(
+            [
+                sys.executable, str(CLI_PATH), "weekly-tick",
+                "--today", "13/04", "--year", "2026",
+                "--data-dir", str(data_dir),
+                "--history-output", str(history_output),
+                "--history-weeks", "1",
+            ],
+            capture_output=True, text=True,
+            env={**__import__("os").environ, "VITA_TEST_MODE": "1"},
+        )
+        payload = json.loads(result.stdout)
+        status = payload["steps"]["ledger_status"]
+
+        # Shape deve ser compatível com cmd_ledger_status
+        assert "healthy" in status, f"ledger_status missing 'healthy': {status.keys()}"
+        assert "issues" in status
+        assert "current_week" in status
+        assert "previous_week" in status
+        assert "today" in status
+        print("✓ test_weekly_tick_includes_status")
+
+
+def test_ledger_status_refactor_preserves_output():
+    """_build_ledger_status retorna mesmo shape que cmd_ledger_status emitia."""
+    from cli import _build_ledger_status
+    from ledger import get_ledger_filename
+
+    today = date(2026, 4, 13)
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        _write_jsonl(ledger_file, [
+            _create_test_ledger_record("t1", "Refactor test", "[ ]", "manual",
+                                       "2026-04-13T09:00:00", "2026-04-13"),
+            _create_test_ledger_record("t2", "Done task", "[x]", "manual",
+                                       "2026-04-12T09:00:00", "2026-04-12",
+                                       completed_at="2026-04-12T17:00:00"),
+        ])
+
+        result = _build_ledger_status(data_dir, today, 2026)
+
+        # Verifica todos os campos top-level esperados
+        expected_keys = {"today", "current_week", "previous_week",
+                         "current_ledger", "previous_ledger", "issues", "healthy"}
+        assert expected_keys == set(result.keys()), (
+            f"Keys divergem: esperado {expected_keys}, recebido {set(result.keys())}"
+        )
+
+        # current_week shape
+        cw = result["current_week"]
+        assert "start" in cw and "end" in cw and "file" in cw and "exists" in cw
+
+        # current_ledger shape (quando existe)
+        cl = result["current_ledger"]
+        assert cl is not None
+        assert "total_tasks" in cl and "open" in cl and "completed" in cl
+
+        print("✓ test_ledger_status_refactor_preserves_output")
+
+
 def run_all_tests():
     """Executa todos os testes."""
     print('\n=== Testes vita-task-manager ===\n')
@@ -1750,6 +1944,11 @@ def run_all_tests():
     test_sync_fixed_weekly_respects_weekday()
     test_cli_recurrence_detect()
     test_cli_recurrence_activate_and_deactivate()
+    test_daily_tick_success()
+    test_daily_tick_partial_failure()
+    test_weekly_tick_success()
+    test_weekly_tick_includes_status()
+    test_ledger_status_refactor_preserves_output()
     print('\n✓ Todos os testes passaram!\n')
 
 

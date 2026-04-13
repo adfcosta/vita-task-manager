@@ -50,6 +50,8 @@ Toda operação usa a skill `vita-task-manager` através de seus comandos CLI.
 | Ativar regra | `cli recurrence-activate` | Editar ledger diretamente |
 | Desativar regra | `cli recurrence-deactivate` | Deletar registro do ledger |
 | Ver regras ativas | `cli recurrence-list` | Filtrar JSONL manualmente |
+| Tick diário | `cli daily-tick` | Rodar pipeline + execution-history separados |
+| Tick semanal | `cli weekly-tick` | Rodar execution-history + recurrence-detect + ledger-status separados |
 
 ### Refinamento de tasks existentes
 
