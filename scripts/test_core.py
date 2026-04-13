@@ -39,7 +39,7 @@ try:
         calculate_urgency,
     )
     from .suggester import explain_suggestion, suggest_135
-    from .execution_history import build_execution_history, render_markdown as render_history_markdown, write_history_file
+    from .execution_history import build_execution_history, build_word_weights, load_word_weights, render_markdown as render_history_markdown, write_history_file, write_word_weights
     from .rollover import perform_rollover
 except ImportError:
     from formatter import format_task_file
@@ -73,7 +73,7 @@ except ImportError:
         calculate_urgency,
     )
     from suggester import explain_suggestion, suggest_135
-    from execution_history import build_execution_history, render_markdown as render_history_markdown, write_history_file
+    from execution_history import build_execution_history, build_word_weights, load_word_weights, render_markdown as render_history_markdown, write_history_file, write_word_weights
     from rollover import perform_rollover
 
 
@@ -1047,6 +1047,132 @@ def test_rollover_no_duplicate():
         print("✓ test_rollover_no_duplicate")
 
 
+def test_word_weights_basic():
+    """build_word_weights gera pesos com 3 fatores combinados."""
+    from ledger import get_ledger_filename, get_week_start
+
+    with tempfile.TemporaryDirectory() as tmp:
+        data_dir = Path(tmp)
+        hist = data_dir / "historico"
+        hist.mkdir()
+
+        sunday = date(2026, 4, 5)
+        ledger_file = hist / get_ledger_filename(sunday)
+
+        # Cria corpus com padrões distintos:
+        # "reuniao" = rápida, sempre concluída → peso baixo
+        # "dentista" = lenta, raramente concluída, muito adiada → peso alto
+        records = []
+        for i in range(10):
+            # 10 reuniões, todas concluídas em 30min
+            records.append({
+                "type": "task", "id": f"reuniao_{i}", "_operation": "create",
+                "status": "[x]", "priority": "🟢",
+                "description": f"Reunião com equipe {i}",
+                "source": "rotina", "created_at": f"2026-04-0{min(i+5,9)}T09:00:00",
+                "completed_at": f"2026-04-0{min(i+5,9)}T09:30:00",
+                "first_added_date": "2026-04-05", "postpone_count": 0,
+            })
+        for i in range(5):
+            # 5 tentativas de "dentista", só 1 concluída (depois de 5 dias)
+            status = "[x]" if i == 0 else "[ ]"
+            completed = "2026-04-10T17:00:00" if i == 0 else None
+            rec = {
+                "type": "task", "id": f"dentista_{i}", "_operation": "create",
+                "status": status, "priority": "🔴",
+                "description": "Ligar pro dentista",
+                "source": "manual", "created_at": f"2026-04-0{min(i+5,9)}T09:00:00",
+                "first_added_date": "2026-04-05",
+                "postpone_count": 3,
+            }
+            if completed:
+                rec["completed_at"] = completed
+            records.append(rec)
+
+        _write_jsonl(ledger_file, records)
+
+        ww = build_word_weights(data_dir, date(2026, 4, 11), weeks=1, min_corpus=5)
+
+        assert ww["corpus_size"] >= 10
+        assert "weights" in ww
+        weights = ww["weights"]
+
+        # "dentista" deve ter peso MUITO maior que "reuniao"
+        assert "dentista" in weights, f"'dentista' não encontrada nos pesos: {list(weights.keys())}"
+        assert "reuniao" in weights, f"'reuniao' não encontrada nos pesos: {list(weights.keys())}"
+        assert weights["dentista"] > weights["reuniao"] * 2, (
+            f"dentista ({weights['dentista']}) deveria ter pelo menos 2x o peso de "
+            f"reuniao ({weights['reuniao']})"
+        )
+
+        print("✓ test_word_weights_basic")
+
+
+def test_word_weights_min_corpus():
+    """build_word_weights retorna vazio se corpus insuficiente."""
+    with tempfile.TemporaryDirectory() as tmp:
+        data_dir = Path(tmp)
+        (data_dir / "historico").mkdir()
+
+        ww = build_word_weights(data_dir, date(2026, 4, 11), weeks=1, min_corpus=50)
+        assert ww["weights"] == {}
+        assert "reason" in ww
+
+        print("✓ test_word_weights_min_corpus")
+
+
+def test_word_weights_write_and_load():
+    """write_word_weights e load_word_weights fazem round-trip correto."""
+    with tempfile.TemporaryDirectory() as tmp:
+        data_dir = Path(tmp)
+
+        ww = {
+            "generated_at": "2026-04-12T00:00:00",
+            "corpus_size": 100,
+            "completed_count": 75,
+            "word_count": 3,
+            "weights": {"dentista": 12.5, "reuniao": 1.3, "email": 0.9},
+        }
+
+        path = write_word_weights(data_dir, ww)
+        assert path.exists()
+
+        loaded = load_word_weights(data_dir)
+        assert loaded["dentista"] == 12.5
+        assert loaded["reuniao"] == 1.3
+        assert loaded["email"] == 0.9
+
+        print("✓ test_word_weights_write_and_load")
+
+
+def test_weighted_similarity_changes_outcome():
+    """Pesos mudam o resultado da detecção de duplicatas."""
+    from ledger_ops import _weighted_similarity, _extract_words
+
+    # Sem pesos: "Ligar pro banco" vs "Ligar pro dentista"
+    # overlap = {ligar}, words_a = {ligar, banco}, words_b = {ligar, dentista}
+    # ratio = 1/2 = 0.5 → match!
+    words_a = _extract_words("Ligar pro banco")
+    words_b = _extract_words("Ligar pro dentista")
+
+    # Sem pesos (peso 1.0 pra tudo)
+    sim_no_weight = _weighted_similarity(words_a, words_b, {})
+    assert sim_no_weight >= 0.5, f"Sem peso deveria ser >= 0.5, é {sim_no_weight}"
+
+    # Com pesos: "ligar" vale pouco, "dentista" e "banco" valem muito
+    weights = {"ligar": 1.0, "banco": 10.0, "dentista": 12.0}
+    sim_weighted = _weighted_similarity(words_a, words_b, weights)
+    assert sim_weighted < 0.5, (
+        f"Com pesos deveria ser < 0.5 (ligar=1 vs banco=10+ligar=1), é {sim_weighted}"
+    )
+
+    # "Ligar pro dentista" vs "Ligar pro dentista" — sempre match
+    sim_exact = _weighted_similarity(words_b, words_b, weights)
+    assert sim_exact >= 0.99, f"Match exato deveria ser ~1.0, é {sim_exact}"
+
+    print("✓ test_weighted_similarity_changes_outcome")
+
+
 def test_ledger_status_cli():
     """ledger-status retorna diagnóstico correto via CLI."""
     from ledger import get_ledger_filename, get_week_start
@@ -1125,6 +1251,10 @@ def run_all_tests():
     test_rollover_missed_sunday()
     test_rollover_no_duplicate()
     test_ledger_status_cli()
+    test_word_weights_basic()
+    test_word_weights_min_corpus()
+    test_word_weights_write_and_load()
+    test_weighted_similarity_changes_outcome()
     print('\n✓ Todos os testes passaram!\n')
 
 

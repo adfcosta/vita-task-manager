@@ -38,7 +38,7 @@ try:
     )
     from .validator import validate_task_file
     from .weekly_summary import build_weekly_summary, render_weekly_summary_markdown
-    from .execution_history import build_execution_history, render_markdown as render_history_markdown, write_history_file
+    from .execution_history import build_execution_history, build_word_weights, load_word_weights, render_markdown as render_history_markdown, write_history_file, write_word_weights
 except ImportError:
     from feedback_input import build_daily_summary
     from ledger import get_all_active_tasks, get_current_task_state, get_ledger_path, load_ledger, make_task_id
@@ -71,7 +71,7 @@ except ImportError:
     )
     from validator import validate_task_file
     from weekly_summary import build_weekly_summary, render_weekly_summary_markdown
-    from execution_history import build_execution_history, render_markdown as render_history_markdown, write_history_file
+    from execution_history import build_execution_history, build_word_weights, load_word_weights, render_markdown as render_history_markdown, write_history_file, write_word_weights
 
 
 def _compact(value: Any) -> Any:
@@ -642,7 +642,17 @@ def cmd_execution_history(args) -> int:
     output_path = Path(args.output)
     write_history_file(output_path, md)
 
-    _emit({"ok": True, "output": str(output_path), "weeks_analyzed": weeks})
+    # Gera word_weights.json como subproduto (usa 12 semanas de corpus)
+    ww = build_word_weights(data_dir, today, weeks=max(weeks, 12))
+    ww_path = write_word_weights(data_dir, ww)
+
+    _emit({
+        "ok": True,
+        "output": str(output_path),
+        "weeks_analyzed": weeks,
+        "word_weights": str(ww_path),
+        "word_weights_count": ww.get("word_count", 0),
+    })
     return 0
 
 

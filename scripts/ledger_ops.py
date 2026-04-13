@@ -55,6 +55,21 @@ def _compact_record(record: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in record.items() if v is not None}
 
 
+def _load_word_weights_safe(ledger_path: Path) -> dict[str, float]:
+    """Carrega word_weights.json do data_dir. Retorna {} se indisponível."""
+    import json as _json
+    # data_dir é o pai do diretório historico que contém o ledger
+    data_dir = ledger_path.parent.parent
+    weights_path = data_dir / "word_weights.json"
+    if not weights_path.exists():
+        return {}
+    try:
+        data = _json.loads(weights_path.read_text(encoding="utf-8"))
+        return data.get("weights", {})
+    except (ValueError, KeyError, OSError):
+        return {}
+
+
 _STOPWORDS = frozenset({
     "a", "o", "as", "os", "de", "do", "da", "dos", "das",
     "em", "no", "na", "nos", "nas", "um", "uma", "uns", "umas",
@@ -73,20 +88,54 @@ def _extract_words(text: str) -> set[str]:
     return words - _STOPWORDS
 
 
+def _weighted_similarity(
+    words_a: set[str],
+    words_b: set[str],
+    weights: dict[str, float],
+) -> float:
+    """Calcula similaridade ponderada entre dois conjuntos de palavras.
+
+    Retorna o maior ratio (em qualquer direção) usando pesos por palavra.
+    Fallback pra peso 1.0 se a palavra não tiver peso registrado.
+    """
+    if not words_a or not words_b:
+        return 0.0
+
+    default_weight = 1.0
+    overlap = words_a & words_b
+    if not overlap:
+        return 0.0
+
+    overlap_weight = sum(weights.get(w, default_weight) for w in overlap)
+    weight_a = sum(weights.get(w, default_weight) for w in words_a)
+    weight_b = sum(weights.get(w, default_weight) for w in words_b)
+
+    ratio_a = overlap_weight / weight_a if weight_a > 0 else 0.0
+    ratio_b = overlap_weight / weight_b if weight_b > 0 else 0.0
+
+    return max(ratio_a, ratio_b)
+
+
 def _find_similar_open_tasks(
     ledger: list[dict[str, Any]],
     new_description: str,
     today: date,
+    word_weights: Optional[dict[str, float]] = None,
 ) -> list[dict[str, Any]]:
-    """Encontra tasks abertas similares por intersecção de palavras.
+    """Encontra tasks abertas similares por similaridade ponderada.
 
     Busca tasks abertas criadas hoje ou ontem cujas palavras significativas
-    tenham intersecção >= 50% com a nova descrição (nos dois sentidos).
+    tenham similaridade >= 50% com a nova descrição.
+
+    Se word_weights for fornecido, usa pesos por palavra (3 fatores:
+    distintividade × evitação × tempo de resolução). Caso contrário,
+    todas as palavras têm peso 1.0 (comportamento original).
     """
     new_words = _extract_words(new_description)
     if not new_words:
         return []
 
+    weights = word_weights or {}
     yesterday = today - timedelta(days=1)
     merged = _merge_task_records(ledger)
     similar = []
@@ -104,18 +153,13 @@ def _find_similar_open_tasks(
         if not existing_words:
             continue
 
-        overlap = new_words & existing_words
-        if not overlap:
-            continue
+        similarity = _weighted_similarity(new_words, existing_words, weights)
 
-        # Intersecção precisa ser >= 50% em pelo menos uma direção
-        ratio_new = len(overlap) / len(new_words)
-        ratio_existing = len(overlap) / len(existing_words)
-
-        if ratio_new >= 0.5 or ratio_existing >= 0.5:
+        if similarity >= 0.5:
             similar.append({
                 "task_id": task.get("id"),
                 "description": task.get("description"),
+                "similarity": round(similarity, 2),
             })
 
     return similar
@@ -141,7 +185,9 @@ def add_task(
     # Detecção de duplicatas (apenas warning, não bloqueia)
     warning = None
     if not allow_duplicate:
-        similar = _find_similar_open_tasks(ledger, description, created_date)
+        # Carrega pesos de palavra se disponíveis
+        word_weights = _load_word_weights_safe(ledger_path)
+        similar = _find_similar_open_tasks(ledger, description, created_date, word_weights)
         if similar:
             warning = {
                 "type": "duplicate_suspect",
