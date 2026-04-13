@@ -1,0 +1,69 @@
+# Tasks — 10/04/2026
+
+## Abertas
+
+- ▢ 🟢 Café da manhã
+  origem: rotina
+  contexto: 07:00
+  criado: 10/04 19:37
+
+- ▢ 🟢 Check mensagens
+  origem: rotina
+  contexto: 08:30
+  criado: 10/04 19:37
+
+- ▢ 🟢 Deep work
+  origem: rotina
+  contexto: 09:00
+  criado: 10/04 19:37
+
+- ▢ 🟢 Hidratação 2L
+  origem: rotina
+  contexto: 14:00
+  criado: 10/04 19:37
+
+- ▢ 🟢 Meditação 10min
+  origem: rotina
+  contexto: 06:00
+  criado: 10/04 19:37
+
+- ▢ 🟢 Planejamento do dia seguinte
+  origem: rotina
+  contexto: 21:00
+  criado: 10/04 19:37
+
+- ▢ 🟢 Revisar e-mails
+  origem: rotina
+  contexto: 08:00
+  criado: 10/04 19:37
+
+## Concluídas hoje
+
+_Sem tasks concluídas hoje._
+
+---
+
+## 🎯 Sugestão 1-3-5
+
+### 🔥 Big (1)
+
+- 👉 (1) Hidratação 2L — score 17.8
+  motivo: complexidade administrável
+
+### ⚡ Medium (3)
+
+- 👉 (1) Café da manhã — score 17.8
+  motivo: complexidade administrável
+- 👉 (2) Check mensagens — score 17.8
+  motivo: complexidade administrável
+- 👉 (3) Deep work — score 17.8
+  motivo: complexidade administrável
+
+### ✅ Small (5)
+
+- 👉 (1) Meditação 10min — score 17.8
+  motivo: complexidade administrável
+- 👉 (2) Planejamento do dia seguinte — score 17.8
+  motivo: complexidade administrável
+- 👉 (3) Revisar e-mails — score 15.2
+  motivo: complexidade administrável
