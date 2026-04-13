@@ -1,60 +1,67 @@
 // ------------------------------------------------------------------
-// Configuração do agente Vita no OpenClaw (Fase 1)
+// Configuração OpenClaw para otimização de sessão da Vita (Fase 1)
 //
-// Merge na config do agente "vita" (agents.list[] onde id: "vita").
-// NÃO colocar em agents.defaults — esses ajustes são específicos
-// da Vita e não devem afetar outros agentes.
+// Merge no openclaw.json do gateway. Contém 3 blocos:
+//   1. session.reset — persistência da sessão (global)
+//   2. agents.defaults.contextPruning — pruning de tool results
+//   3. agents.defaults.compaction — memory flush pré-compactação
+//
+// contextPruning e compaction só existem em agents.defaults (não
+// há override per-agent). session.reset é global mas aceita
+// resetByType por tipo de sessão (thread/direct/group).
 //
 // Referência: patches/vita-SESSION-DESIGN.md (Camadas 1, 2, 3)
-// ------------------------------------------------------------------
-//
-// Exemplo de onde encaixar no openclaw.json:
-//
-//   "agents": {
-//     "list": [
-//       {
-//         "id": "vita",
-//         ...aqui...
-//       }
-//     ]
-//   }
-//
 // ------------------------------------------------------------------
 {
   // --- Camada 1: Persistência da sessão intra-dia ---
   // A sessão criada pelo cron matinal sobrevive o dia todo.
   // Janus comunica via sessions_send sem pagar bootstrap novamente.
   // 720 min = 12h → cobre 06:00-18:00 mesmo sem interação.
+  //
+  // NOTA: session.reset é global — afeta todas as sessões.
+  // Se isso for indesejado, usar resetByType para diferenciar
+  // por tipo de sessão (thread/direct/group).
   "session": {
     "reset": {
       "idleMinutes": 720
     }
   },
 
-  // --- Camada 2: Pruning de tool results ---
-  // Cada comando CLI retorna JSON de ~500-2k tokens que é útil
-  // por segundos (pra formular resposta) e depois vira peso morto.
-  // TTL de 2 min remove tool results antigos automaticamente.
-  //
-  // Efeito: contexto cresce só pelo texto da conversa (~200 tokens
-  // por turno). Compactação raramente é necessária num dia normal.
-  "contextPruning": {
-    "mode": "cache-ttl",
-    "ttl": "2m"
-  },
+  "agents": {
+    "defaults": {
 
-  // --- Camada 3: Memory flush pré-compactação ---
-  // Se apesar do pruning a compactação for necessária (dia
-  // atípico com muitas interações longas), o memory flush salva
-  // estado crítico em disco ANTES de compactar.
-  //
-  // O arquivo memory/YYYY-MM-DD.md sobrevive à compactação e
-  // pode ser lido pela Vita para recuperar contexto perdido.
-  "compaction": {
-    "memoryFlush": {
-      "enabled": true,
-      "softThresholdTokens": 4000,
-      "systemPrompt": "Antes de compactar, salve em memory/YYYY-MM-DD.md: (1) tasks completadas hoje com task_ids, (2) tasks em progresso com task_ids e último status, (3) alertas pendentes, (4) contexto relevante das interações do dia. Use formato estruturado. Priorize task_ids — são irrecuperáveis sem consulta ao ledger."
+      // --- Camada 2: Pruning de tool results ---
+      // Cada comando CLI retorna JSON de ~500-2k tokens que é útil
+      // por segundos (pra formular resposta) e depois vira peso morto.
+      // TTL de 2 min remove tool results antigos automaticamente.
+      //
+      // Efeito: contexto cresce só pelo texto da conversa (~200 tokens
+      // por turno). Compactação raramente é necessária num dia normal.
+      //
+      // NOTA: agents.defaults afeta todos os agentes. Não há
+      // override per-agent para contextPruning.
+      "contextPruning": {
+        "mode": "cache-ttl",
+        "ttl": "2m"
+      },
+
+      // --- Camada 3: Memory flush pré-compactação ---
+      // Se apesar do pruning a compactação for necessária (dia
+      // atípico com muitas interações longas), o memory flush salva
+      // estado crítico em disco ANTES de compactar.
+      //
+      // O arquivo memory/YYYY-MM-DD.md sobrevive à compactação e
+      // pode ser lido pela Vita para recuperar contexto perdido.
+      //
+      // NOTA: agents.defaults afeta todos os agentes. Não há
+      // override per-agent para compaction.
+      "compaction": {
+        "memoryFlush": {
+          "enabled": true,
+          "softThresholdTokens": 4000,
+          "systemPrompt": "Antes de compactar, salve em memory/YYYY-MM-DD.md: (1) tasks completadas hoje com task_ids, (2) tasks em progresso com task_ids e último status, (3) alertas pendentes, (4) contexto relevante das interações do dia. Use formato estruturado. Priorize task_ids — são irrecuperáveis sem consulta ao ledger."
+        }
+      }
     }
   }
 }
