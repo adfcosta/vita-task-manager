@@ -5,6 +5,29 @@ Todas as mudanças notáveis desta skill serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [2.6.1] - 2026-04-13
+
+### Adicionado
+- `.gitignore` para dados pessoais do usuário
+- Diretório `examples/` com rotina de exemplo
+- `.gitkeep` em data/historico, input e output
+
+### Mudado
+- `input/rotina.md` não é mais versionado; a versão de exemplo foi movida para `examples/rotina.md`
+- README.md e SKILL.md documentam a separação entre código da skill e dados do usuário
+
+### Removido
+- `data/historico/*.jsonl` do tracking (preservados no git history)
+- `data/historico-execucao.md` do tracking
+- `output/diarias.txt` do tracking
+- `data/word_weights.json` do tracking (se existia)
+
+### Notas de migração
+Quem já tem o repo clonado localmente:
+- Dados pessoais continuam no disco (remoção foi --cached)
+- Próximo `git pull` não reintroduz os arquivos
+- Para primeira instalação em máquina nova: `cp examples/rotina.md input/rotina.md` antes de rodar o pipeline
+
 ## [2.6.0] - 2026-04-13
 
 ### Adicionado

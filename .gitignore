@@ -1,0 +1,31 @@
+# Dados pessoais do usuário (gerados ou editados localmente)
+data/historico/*.jsonl
+data/historico-execucao.md
+data/word_weights.json
+
+# Arquivos de entrada do usuário (rotina e agenda pessoais)
+input/*.md
+
+# Saída do pipeline (render diário pessoal)
+output/*.txt
+output/*.md
+
+# Preserva a estrutura dos diretórios
+!data/historico/.gitkeep
+!input/.gitkeep
+!output/.gitkeep
+
+# Artefatos Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+*.egg-info/
+
+# Editores
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
