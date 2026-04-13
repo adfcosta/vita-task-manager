@@ -13,7 +13,7 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
   - Sessão isolada diária via cron (elimina bootstrap repetido)
   - Session pruning cache-ttl (impede acúmulo de tool results)
   - Memory flush pré-compactação (preserva estado crítico em disco)
-  - Plugin CRUD no Janus (resolve operações atômicas sem LLM)
+  - Plugin SDK no Janus (resolve operações atômicas sem LLM)
 - Projeção de custos baseada em dados reais da semana 07-13/04/2026
   (49 sessões, 675k tokens → estimativa de ~130k/semana com as 4 camadas)
 - Plano de implementação em 3 fases (config → plugin → ajuste fino)
@@ -22,7 +22,7 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 ### Notas
 - Nenhum código novo. PR puramente documental.
 - Fase 1 (sessão diária + pruning) é config-only no OpenClaw.
-- Fase 2 (plugin CRUD) requer implementação no Janus + `cli check-alerts` na Vita.
+- Fase 2 (Plugin SDK) requer implementação no Janus + `cli check-alerts` na Vita.
 - A proposta é complementar aos Standing Orders de v2.8.0.
 
 ## [2.8.0] - 2026-04-13

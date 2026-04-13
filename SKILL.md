@@ -478,7 +478,7 @@ do dia, e o Janus comunica via `sessions_send` ao longo do dia,
 eliminando o bootstrap repetido (~60-80% de redução de tokens).
 
 A proposta completa — incluindo pruning de tool results, memory
-flush pré-compactação e plugin CRUD no Janus — está documentada
+flush pré-compactação e Plugin SDK no Janus — está documentada
 em `patches/vita-SESSION-DESIGN.md`.
 
 ## Arquivos-chave
