@@ -1,101 +1,103 @@
-# Patch para Integração Vita + vita-task-manager
+# Patches — vita-task-manager
 
-## Versão
-v2.2.0 — Scoring e Sugestão 1-3-5
+Esta pasta contém **deltas** que a skill `vita-task-manager` enxerta nos arquivos
+do agente Vita no Domus. São blocos de conteúdo, não arquivos completos.
 
-## Estrutura de Diretórios (tudo dentro da skill)
+**Versão atual dos patches:** v2.3.1
+
+## Filosofia: delta, não substituição
+
+Cada arquivo aqui contém **apenas** o bloco que a skill adiciona ao arquivo vivo
+do agente. O resto do arquivo da Vita (Session Start, Scope, Operating Rules,
+Safety, Memory, etc.) é responsabilidade do agente e **não é tocado**.
+
+Essa separação garante que:
+
+- Atualizações da skill não sobrescrevem customizações do agente
+- Atualizações do agente não conflitam com a skill
+- O Faber pode reaplicar o patch a cada update da skill sem medo
+
+## O que tem aqui
+
+| Arquivo | Destino no Domus | Conteúdo |
+|---------|------------------|----------|
+| `vita-AGENTS.md` | `vita/AGENTS.md` | Bloco `## Sistema de Tasks (via vita-task-manager)` com governança, paths, fluxo e scoring |
+
+**Só AGENTS.** Não há patch de SOUL nem de IDENTITY porque:
+
+- **SOUL** é filosofia/comportamento — identidade pura. Nada técnico ali.
+- **IDENTITY** é metadata (nome, vibe, emoji). Nada procedural ali.
+- Tudo que é **procedimento** (comandos, paths, governança) vive no AGENTS, que é o único lugar onde a skill precisa aparecer.
+
+## Como aplicar
+
+Cada patch usa marcadores HTML para delimitar o bloco a enxertar:
 
 ```
-vita/skills/vita-task-manager/
-├── input/                    # Arquivos de entrada (Vita lê)
-│   ├── agenda-fixa.md
-│   └── agenda-semana.md
-├── output/                   # Arquivos de saída (skill gera)
-│   └── diarias.md
-├── data/                     # Ledger JSONL (skill gerencia)
-│   └── historico/
-└── ...scripts e docs
+<!-- BEGIN vita-task-manager v2.3.1 -->
+...conteúdo do bloco...
+<!-- END vita-task-manager -->
 ```
 
-## Arquivos de Patch (em `patches/`)
+### Primeira instalação
 
-| Arquivo | Destino | Mudança Principal |
-|---------|---------|-------------------|
-| `vita-SOUL.md` | `vita/SOUL.md` | Seção "Sistema de Tasks (via Skill)" + paths |
-| `vita-AGENTS.md` | `vita/AGENTS.md` | Fluxo de trabalho + paths da skill |
-| `vita-IDENTITY.md` | `vita/IDENTITY.md` | Ferramenta principal + integração |
+Ainda não há marcadores no AGENTS vivo da Vita. Aplicação manual:
 
-## Resumo das Mudanças v2.2.0
+1. Abrir `vita/AGENTS.md` no Domus
+2. Localizar a posição correta para inserir (após `### Não inclui`)
+3. Copiar do patch **tudo entre `<!-- BEGIN ... -->` e `<!-- END ... -->` inclusive** (os marcadores entram junto)
+4. Colar no AGENTS vivo
+5. Salvar
 
-### SOUL.md
-- Nova seção: Sistema de Tasks (via Skill vita-task-manager)
-- Arquitetura explicada (ledger JSONL, output diarias.md)
-- Comandos principais listados (incluindo `score-task`, `suggest-daily`, `explain-task`)
-- Seção para TDAH: brain dump + scoring inteligente + 1-3-5
-- Fórmula de score documentada
-- Relationships atualizados (Faber, Prometheus)
+Os marcadores ficam no AGENTS vivo pra sempre, pra permitir updates automáticos.
 
-### AGENTS.md
-- Seção "Sistema de Tasks (via vita-task-manager)"
-- Tabela de governança: operação → método correto vs incorreto (inclui comandos de scoring)
-- Fluxo detalhado: Manhã, Durante o Dia, Revisão
-- **Novo fluxo:** Sugestão 1-3-5 (quando perguntar "o que fazer hoje?")
-- **Novo fluxo:** Explicar score (quando questionar prioridade)
-- Regras de ouro: nunca editar arquivos diretamente
-- Coordination atualizado (solicita Faber para updates)
+### Update (versão nova da skill)
 
-### IDENTITY.md
-- Campo "Ferramenta Principal" adicionado
-- Descrição da skill vita-task-manager
-- Regra de integração: Vita orquestra, skill executa
+A partir da segunda aplicação, os marcadores já existem. O update é:
 
-## Instruções de Aplicação (para Faber)
+1. Abrir `vita/AGENTS.md` no Domus
+2. Procurar `<!-- BEGIN vita-task-manager ... -->` e `<!-- END vita-task-manager -->`
+3. Substituir **tudo entre os dois marcadores (inclusive as próprias linhas de marcador)** pelo conteúdo do patch novo
+4. Salvar
 
-### 1. Criar estrutura de diretórios
-```bash
-mkdir -p /home/node/.openclaw/workspace/vita/skills/vita-task-manager/input
-mkdir -p /home/node/.openclaw/workspace/vita/skills/vita-task-manager/output
-mkdir -p /home/node/.openclaw/workspace/vita/skills/vita-task-manager/data/historico
+O Faber pode automatizar isso com um regex simples:
+
+```python
+import re
+with open("vita/AGENTS.md") as f:
+    current = f.read()
+with open("patches/vita-AGENTS.md") as f:
+    patch = f.read()
+
+# Extrai o bloco BEGIN→END do patch (ignorando o preâmbulo de instruções)
+block = re.search(
+    r"<!-- BEGIN vita-task-manager.*?<!-- END vita-task-manager -->",
+    patch, re.DOTALL
+).group(0)
+
+# Substitui o bloco no arquivo vivo (ou insere se não existir)
+pattern = r"<!-- BEGIN vita-task-manager.*?<!-- END vita-task-manager -->"
+if re.search(pattern, current, re.DOTALL):
+    new = re.sub(pattern, block, current, flags=re.DOTALL)
+else:
+    # Primeira instalação: inserir após `### Não inclui`
+    new = current.replace(
+        "### Não inclui",
+        "### Não inclui",  # placeholder — ajustar inserção conforme fluxo do Faber
+    )
+with open("vita/AGENTS.md", "w") as f:
+    f.write(new)
 ```
 
-### 2. Backup dos arquivos originais da Vita
-```bash
-cp /home/node/.openclaw/workspace/vita/SOUL.md /home/node/.openclaw/workspace/vita/SOUL.md.bak
-cp /home/node/.openclaw/workspace/vita/AGENTS.md /home/node/.openclaw/workspace/vita/AGENTS.md.bak
-cp /home/node/.openclaw/workspace/vita/IDENTITY.md /home/node/.openclaw/workspace/vita/IDENTITY.md.bak
-```
+## Versionamento
 
-### 3. Aplicar patches
-cp /home/node/.openclaw/workspace/prometheus/producao/vita-task-manager/patches/vita-SOUL.md /home/node/.openclaw/workspace/vita/SOUL.md
-cp /home/node/.openclaw/workspace/prometheus/producao/vita-task-manager/patches/vita-AGENTS.md /home/node/.openclaw/workspace/vita/AGENTS.md
-cp /home/node/.openclaw/workspace/prometheus/producao/vita-task-manager/patches/vita-IDENTITY.md /home/node/.openclaw/workspace/vita/IDENTITY.md
-```
+A versão no marcador BEGIN (`v2.3.1`) deve sempre casar com a versão da skill.
+Se divergir, é sinal de update pendente — o Faber pode detectar isso comparando
+o marcador do AGENTS vivo com a versão atual da skill.
 
-## Validação Pós-Aplicação
+## Validação após aplicação
 
-- [ ] Vita entende que não deve editar `output/diarias.md` diretamente
-- [ ] Vita conhece comandos `brain-dump`, `dump-to-task`, `ledger-*`
-- [ ] Vita conhece comandos `score-task`, `suggest-daily`, `explain-task`
-- [ ] Vita sabe usar `suggest-daily` quando Adriano pedir "o que fazer hoje?"
-- [ ] Vita sabe usar `explain-task` para justificar prioridades
-- [ ] Vita sabe os paths: `input/`, `output/`, `data/historico/`
-- [ ] Vita sabe que Faber aplica atualizações da skill
-- [ ] Vita sabe que Prometheus desenvolve a skill
-
-## Para a Skill: O que Vita deve fazer
-
-Quando a skill vita-task-manager for instalada, ela espera que a Vita:
-
-1. **Nunca edite arquivos diretamente** — use sempre os comandos CLI
-2. **Para adicionar task:** use `ledger-add` com descrição, prioridade, prazo opcional
-3. **Para completar task:** use `ledger-complete` com task_id
-4. **Para brain dump:** use `brain-dump` quando Adriano estiver sobrecarregado
-5. **Para sugestão 1-3-5:** use `suggest-daily` quando pedir "o que fazer hoje?"
-6. **Para explicar:** use `explain-task` quando questionar prioridades
-7. **Ler output:** `diarias.md` é o render diário — ler para contexto
-
-## Notas
-
-- Estes patches são **conceituais** — não alteram comportamento técnico
-- O objetivo é: nos arquivos de personalidade da Vita, a skill é mencionada como ferramenta oficial
-- A execução real continua sendo via Gateway/Janus orquestrando
+- [ ] Marcadores `<!-- BEGIN vita-task-manager vX.Y.Z -->` e `<!-- END vita-task-manager -->` existem no AGENTS vivo
+- [ ] Versão do marcador casa com a versão da skill
+- [ ] Seções fora do bloco (Session Start, Scope, Safety, etc.) não foram alteradas
+- [ ] Comando CLI de exemplo funciona: `cli pipeline --today DD/MM --year YYYY --rotina input/rotina.md --data-dir data --output output/diarias.txt`

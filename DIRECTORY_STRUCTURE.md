@@ -1,4 +1,4 @@
-# Estrutura de Diretórios — vita-task-manager v2.2
+# Estrutura de Diretórios — vita-task-manager v2.3
 
 ## Estrutura Padrão (tudo dentro da skill)
 
@@ -17,10 +17,10 @@ vita/skills/vita-task-manager/
 │   └── historico/               # Ledger JSONL
 │       └── DDMMYY_DDMMYY_bruto.jsonl
 ├── input/                        # Arquivos de entrada (leitura)
-│   ├── agenda-fixa.md           # Compromissos fixos
+│   ├── rotina.md                # Rotina diária
 │   └── agenda-semana.md         # Compromissos pontuais
 └── output/                       # Arquivos de saída (escrita)
-    └── diarias.md               # Render diário
+    └── diarias.txt              # Render diário (padrão WhatsApp)
 ```
 
 ## Alternativa: Paths Customizados
@@ -32,8 +32,8 @@ A skill aceita paths customizados via CLI, mas o **padrão** é tudo dentro da s
 cli pipeline \
   --today 08/04 --year 2026 \
   --data-dir vita/skills/vita-task-manager/data \
-  --output vita/skills/vita-task-manager/output/diarias.md \
-  --agenda-fixa vita/skills/vita-task-manager/input/agenda-fixa.md \
+  --output vita/skills/vita-task-manager/output/diarias.txt \
+  --rotina vita/skills/vita-task-manager/input/rotina.md \
   --agenda-semana vita/skills/vita-task-manager/input/agenda-semana.md
 ```
 
@@ -48,18 +48,18 @@ cli pipeline --today 08/04 --year 2026 --data-dir vita/skills/vita-task-manager/
 |-----------|-----------|------------|
 | `input/` | Leitura | Usuário (Vita orienta) |
 | `data/historico/` | Leitura/Escrita | Skill (append-only) |
-| `output/` | Escrita | Skill (gera diarias.md) |
+| `output/` | Escrita | Skill (gera diarias.txt) |
 
 ## Para a Vita
 
 ### Arquivos que a Vita DEVE conhecer:
 
 1. **Input (lê):**
-   - `vita/skills/vita-task-manager/input/agenda-fixa.md`
+   - `vita/skills/vita-task-manager/input/rotina.md`
    - `vita/skills/vita-task-manager/input/agenda-semana.md`
 
 2. **Output (lê para contexto):**
-   - `vita/skills/vita-task-manager/output/diarias.md`
+   - `vita/skills/vita-task-manager/output/diarias.txt`
 
 3. **Ledger (nunca lê diretamente — usa CLI):**
    - `vita/skills/vita-task-manager/data/historico/*.jsonl`
@@ -70,7 +70,7 @@ cli pipeline --today 08/04 --year 2026 --data-dir vita/skills/vita-task-manager/
 cli pipeline \
   --today DD/MM --year YYYY \
   --data-dir vita/skills/vita-task-manager/data \
-  --agenda-fixa vita/skills/vita-task-manager/input/agenda-fixa.md \
+  --rotina vita/skills/vita-task-manager/input/rotina.md \
   --agenda-semana vita/skills/vita-task-manager/input/agenda-semana.md \
-  --output vita/skills/vita-task-manager/output/diarias.md
+  --output vita/skills/vita-task-manager/output/diarias.txt
 ```
