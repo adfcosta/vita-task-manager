@@ -5,6 +5,17 @@ Todas as mudanças notáveis desta skill serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [2.10.1] - 2026-04-14
+
+### Corrigido
+- **Rollover de brain dumps:** Dumps não convertidos agora são corretamente
+  transportados para o ledger da semana seguinte durante o rollover semanal.
+  Dumps já convertidos em tasks são ignorados corretamente.
+  - Adicionada `get_carry_over_dumps()` em `scripts/ledger.py`
+  - Atualizado `perform_rollover()` em `scripts/rollover.py`
+  - Adicionados 2 testes: `test_rollover_carries_pending_dumps` e
+    `test_rollover_skips_converted_dumps`
+
 ## [2.10.0] - 2026-04-13
 
 ### Adicionado
