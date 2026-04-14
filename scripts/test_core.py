@@ -1031,7 +1031,7 @@ def test_rollover_missed_sunday():
 
 
 def test_rollover_no_duplicate():
-    """Rollover não re-executa se ledger da semana já existe."""
+    """Rollover não re-executa tasks que já foram migradas."""
     from ledger import get_ledger_filename
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -1039,21 +1039,23 @@ def test_rollover_no_duplicate():
         hist = data_dir / "historico"
         hist.mkdir()
 
-        # Semana anterior
+        # Semana anterior com 1 task + marca de rollover já feito
         last_sunday = date(2026, 4, 5)
         old_ledger = hist / get_ledger_filename(last_sunday)
         _write_jsonl(old_ledger, [
             _create_test_ledger_record("t1", "Task X", "[ ]"),
+            {"type": "task", "id": "t1", "_operation": "rollover",
+             "carried_to": "t1_new", "rolled_at": "ledger_new"},
         ])
 
-        # Ledger da semana nova já existe (rollover já foi feito)
+        # Ledger da semana nova já existe
         new_sunday = date(2026, 4, 12)
         new_ledger = hist / get_ledger_filename(new_sunday)
         _write_jsonl(new_ledger, [
             _create_test_ledger_record("t1_new", "Task X (carried)", "[ ]"),
         ])
 
-        # Chama rollover novamente — deve ser no-op
+        # Chama rollover — deve ser no-op (task já migrada)
         result = perform_rollover(data_dir, date(2026, 4, 14), 2026)
         assert result["performed"] is False
         assert result["carried_over"] == 0
@@ -1063,6 +1065,56 @@ def test_rollover_no_duplicate():
         assert len(new_records) == 1, "Não deveria duplicar tasks no rollover"
 
         print("✓ test_rollover_no_duplicate")
+
+
+def test_rollover_late_migration():
+    """Rollover migra tasks pendentes mesmo quando ledger da semana já existe."""
+    from ledger import get_ledger_filename
+
+    with tempfile.TemporaryDirectory() as tmp:
+        data_dir = Path(tmp)
+        hist = data_dir / "historico"
+        hist.mkdir()
+
+        # Semana anterior com 2 tasks abertas
+        last_sunday = date(2026, 4, 5)
+        old_ledger = hist / get_ledger_filename(last_sunday)
+        _write_jsonl(old_ledger, [
+            _create_test_ledger_record("t1", "Task A", "[ ]"),
+            _create_test_ledger_record("t2", "Task B", "[~]"),
+        ])
+
+        # Ledger da semana nova já existe (pipeline rodou antes do rollover)
+        new_sunday = date(2026, 4, 12)
+        new_ledger = hist / get_ledger_filename(new_sunday)
+        _write_jsonl(new_ledger, [
+            _create_test_ledger_record("t3", "Task C (criada esta semana)", "[ ]"),
+        ])
+
+        # Rollover deve migrar t1 e t2 mesmo com ledger existente
+        result = perform_rollover(data_dir, date(2026, 4, 14), 2026)
+        assert result["performed"] is True, "Deveria migrar tasks pendentes"
+        assert result["carried_over"] == 2, f"Esperava 2 migradas, got {result['carried_over']}"
+
+        # Novo ledger deve ter 3 records: t3 original + 2 migradas
+        new_records = load_ledger(new_ledger)
+        assert len(new_records) == 3, f"Esperava 3 records, got {len(new_records)}"
+
+        # Verifica que tasks migradas têm carried_from
+        migrated = [r for r in new_records if r.get("carried_from")]
+        assert len(migrated) == 2, "Deveria ter 2 tasks com carried_from"
+
+        # Verifica que old ledger tem marcas de rollover
+        old_records = load_ledger(old_ledger)
+        rollover_marks = [r for r in old_records if r.get("_operation") == "rollover"]
+        assert len(rollover_marks) == 2, "Deveria ter 2 marcas de rollover no ledger antigo"
+
+        # Segundo rollover deve ser no-op (tudo já migrado)
+        result2 = perform_rollover(data_dir, date(2026, 4, 15), 2026)
+        assert result2["performed"] is False
+        assert result2["carried_over"] == 0
+
+        print("✓ test_rollover_late_migration")
 
 
 def test_word_weights_basic():
@@ -2112,6 +2164,7 @@ def run_all_tests():
     test_rollover_on_sunday()
     test_rollover_missed_sunday()
     test_rollover_no_duplicate()
+    test_rollover_late_migration()
     test_ledger_status_cli()
     test_word_weights_basic()
     test_word_weights_min_corpus()
