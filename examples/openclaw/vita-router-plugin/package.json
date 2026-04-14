@@ -1,0 +1,9 @@
+{
+  "name": "@vita/openclaw-vita-router",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Plugin SDK para routing inteligente de tasks da Vita no Janus. Classifica intenções CRUD localmente (0 tokens) e delega operações complexas via sessions_send.",
+  "openclaw": {
+    "extensions": ["./index.ts"]
+  }
+}

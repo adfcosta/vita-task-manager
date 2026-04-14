@@ -1,0 +1,21 @@
+{
+  "id": "vita-router",
+  "name": "Vita Router",
+  "description": "Classifica intenções CRUD de tasks e executa localmente via CLI, delegando operações complexas para a sessão da Vita.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "vitaSkillPath": {
+        "type": "string",
+        "description": "Caminho absoluto para o diretório da skill vita-task-manager"
+      },
+      "timezone": {
+        "type": "string",
+        "default": "America/Maceio",
+        "description": "Timezone para cálculo de datas (padrão: America/Maceio)"
+      }
+    },
+    "required": ["vitaSkillPath"]
+  }
+}
