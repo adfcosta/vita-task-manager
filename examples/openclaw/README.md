@@ -10,8 +10,7 @@ de sessão documentada em `patches/vita-SESSION-DESIGN.md`.
 | `cron-daily.sh` | 1 | Cron matinal (06:00) — roda daily-tick na sessão `vita-daily` |
 | `cron-weekly.sh` | 1 | Cron semanal (dom 20:00) — roda weekly-tick na sessão `vita-daily` |
 | `vita-agent-config.json5` | 1 | Config `agents.defaults`: pruning + memoryFlush |
-| `janus-routing.ts` | 1+2 | Snippet de referência: sessions_send + classifyIntent |
-| `vita-router-plugin/` | 2 | Plugin OpenClaw real: tools vita_quick_crud + vita_check_alerts |
+| `vita-router-plugin/` | 2 | Plugin OpenClaw: tools vita_quick_crud + vita_check_alerts |
 
 ## Modelo de sessão
 
@@ -51,5 +50,4 @@ que a sessão sobreviva das 06:00 até a madrugada seguinte.
 - Os `.sh` são comandos `openclaw cron add` — rodar **uma vez**
 - O `.json5` é merge em `agents.defaults`, não substituição
 - A sessão `vita-daily` reseta automaticamente às 04:00 (default)
-- O `janus-routing.ts` é snippet de referência — o plugin real é `vita-router-plugin/`
 - Ajustar `America/Maceio` para o timezone correto se necessário
