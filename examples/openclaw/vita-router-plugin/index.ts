@@ -5,11 +5,13 @@
 // e executa localmente via CLI quando possível. Operações complexas
 // passam direto para a sessão da Vita via routing normal.
 //
+// Usa process-runtime do SDK (não child_process) para execução
+// de comandos — aprovado pelo scanner de segurança.
+//
 // Referência: patches/vita-SESSION-DESIGN.md (Camada 4)
 // ------------------------------------------------------------------
 
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
-import { Type } from "@sinclair/typebox";
 import { classifyIntent } from "./classify.js";
 import { executeCrud, checkAlerts, formatCrudResponse } from "./vita-cli.js";
 import type { VitaCliConfig } from "./vita-cli.js";
@@ -58,20 +60,21 @@ export default definePluginEntry({
 
     // ----------------------------------------------------------------
     // Tool: vita_check_alerts
-    //
-    // Janus pode chamar pra enriquecer contexto antes de delegar
-    // operações complexas à Vita. Execução local, 0 tokens.
     // ----------------------------------------------------------------
     api.registerTool({
       name: "vita_check_alerts",
       description:
         "Verifica alertas pendentes de tasks (due_today, overdue, stalled, blocked). " +
         "Execução local sem tokens de LLM.",
-      parameters: Type.Object({}),
+      parameters: {
+        type: "object" as const,
+        properties: {},
+        additionalProperties: false,
+      },
       async execute() {
         try {
           const { today, year } = getTodayAndYear(timezone);
-          const alerts = checkAlerts(today, year, cliConfig);
+          const alerts = await checkAlerts(today, year, cliConfig);
           return {
             content: [{ type: "text", text: JSON.stringify(alerts, null, 2) }],
           };
@@ -87,10 +90,6 @@ export default definePluginEntry({
 
     // ----------------------------------------------------------------
     // Tool: vita_quick_crud
-    //
-    // CRUD direto no ledger sem passar pela Vita. Classificação de
-    // intenção embutida. Se duplicata detectada, retorna warning
-    // pro Janus escalar via Duplicate Guardrail.
     // ----------------------------------------------------------------
     api.registerTool({
       name: "vita_quick_crud",
@@ -99,13 +98,19 @@ export default definePluginEntry({
         "diretamente via CLI, sem gastar tokens de LLM. Usar quando a " +
         "intenção do usuário for clara e direta. Se retornar warning de " +
         "duplicata, escalar para a Vita via sessão.",
-      parameters: Type.Object({
-        message: Type.String({
-          description:
-            "Mensagem do usuário em linguagem natural (ex: 'terminei relatório')",
-        }),
-      }),
-      async execute(_id, params) {
+      parameters: {
+        type: "object" as const,
+        properties: {
+          message: {
+            type: "string",
+            description:
+              "Mensagem do usuário em linguagem natural (ex: 'terminei relatório')",
+          },
+        },
+        required: ["message"],
+        additionalProperties: false,
+      },
+      async execute(_id: string, params: { message: string }) {
         const { today, year } = getTodayAndYear(timezone);
         const intent = classifyIntent(params.message);
 
@@ -127,7 +132,7 @@ export default definePluginEntry({
         }
 
         try {
-          const result = executeCrud(intent, today, year, cliConfig);
+          const result = await executeCrud(intent, today, year, cliConfig);
 
           // Duplicate Guardrail: warning → Janus deve escalar pra Vita
           if (

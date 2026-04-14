@@ -1,56 +1,67 @@
 // ------------------------------------------------------------------
 // Wrapper para execução de comandos CLI da Vita
 //
-// Executa localmente via execSync (0 tokens de LLM).
+// Usa process-runtime do Plugin SDK (não child_process) para
+// execução segura aprovada pelo scanner de segurança do OpenClaw.
 // Todos os comandos retornam JSON parseado.
 // ------------------------------------------------------------------
 
-import { execSync } from "child_process";
+import { runExec } from "openclaw/plugin-sdk/process-runtime";
 import type { VitaIntent } from "./classify.js";
+
+const TIMEOUT_MS = 15_000;
 
 export interface VitaCliConfig {
   vitaSkillPath: string;
   dataDir: string;
 }
 
-function cli(config: VitaCliConfig): string {
-  return `python3 ${config.vitaSkillPath}/scripts/cli.py`;
-}
-
-function dateArgs(today: string, year: number): string {
-  return `--today ${today} --year ${year} --data-dir`;
+/**
+ * Executa subcomando do CLI e retorna JSON parseado.
+ */
+async function runCli(
+  config: VitaCliConfig,
+  subcommand: string,
+  args: string[],
+): Promise<Record<string, unknown>> {
+  const { stdout } = await runExec(
+    "python3",
+    [`${config.vitaSkillPath}/scripts/cli.py`, subcommand, ...args],
+    { timeoutMs: TIMEOUT_MS, cwd: config.vitaSkillPath },
+  );
+  return JSON.parse(stdout);
 }
 
 /**
  * Constrói e executa comando CLI a partir da intenção classificada.
  */
-export function executeCrud(
+export async function executeCrud(
   intent: VitaIntent,
   today: string,
   year: number,
   config: VitaCliConfig,
-): Record<string, unknown> {
-  const base = `${cli(config)} ledger-${intent.type}`;
-  const args = `--description "${intent.params.description}" ${dateArgs(today, year)} ${config.dataDir}`;
+): Promise<Record<string, unknown>> {
+  const baseArgs = [
+    "--description", intent.params.description,
+    "--today", today,
+    "--year", String(year),
+    "--data-dir", config.dataDir,
+  ];
 
-  let cmd: string;
   switch (intent.type) {
     case "complete":
     case "start":
-      cmd = `${base} ${args}`;
-      break;
+      return runCli(config, `ledger-${intent.type}`, baseArgs);
     case "add":
-      cmd = `${base} ${args} --priority 🟡`;
-      break;
+      return runCli(config, "ledger-add", [...baseArgs, "--priority", "🟡"]);
     case "cancel":
-      cmd = `${base} ${args} --reason "Cancelado via Janus"`;
-      break;
+      return runCli(config, "ledger-cancel", [
+        ...baseArgs,
+        "--reason", "Cancelado via Janus",
+      ]);
     default:
       throw new Error(`Cannot build CLI for type: ${intent.type}`);
   }
-
-  const output = execSync(cmd, { encoding: "utf-8" });
-  return JSON.parse(output);
 }
 
 /**
@@ -59,20 +70,23 @@ export function executeCrud(
  * Retorna alertas acionáveis para enriquecer o contexto
  * do sessions_send quando a operação for complexa.
  */
-export function checkAlerts(
+export async function checkAlerts(
   today: string,
   year: number,
   config: VitaCliConfig,
-): {
+): Promise<{
   today: string;
   has_alerts: boolean;
   counts: Record<string, number>;
   total: number;
   alerts: Array<Record<string, unknown>>;
-} {
-  const cmd = `${cli(config)} check-alerts ${dateArgs(today, year)} ${config.dataDir}`;
-  const output = execSync(cmd, { encoding: "utf-8" });
-  return JSON.parse(output);
+}> {
+  const result = await runCli(config, "check-alerts", [
+    "--today", today,
+    "--year", String(year),
+    "--data-dir", config.dataDir,
+  ]);
+  return result as any;
 }
 
 /**
