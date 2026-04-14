@@ -7,6 +7,7 @@ from typing import Any
 try:
     from .ledger import (
         append_record,
+        get_carry_over_dumps,
         get_carry_over_tasks,
         get_ledger_path,
         get_week_start,
@@ -16,6 +17,7 @@ try:
 except ImportError:
     from ledger import (
         append_record,
+        get_carry_over_dumps,
         get_carry_over_tasks,
         get_ledger_path,
         get_week_start,
@@ -133,10 +135,37 @@ def perform_rollover(
             "description": task["description"],
         })
 
+    # Migra dumps pendentes
+    carry_dumps = get_carry_over_dumps(old_ledger)
+    carried_dumps = []
+
+    for dump in carry_dumps:
+        old_dump_id = dump["id"]
+
+        append_record(new_ledger_path, {k: v for k, v in {
+            "type": "dump",
+            "id": old_dump_id,
+            "text": dump.get("text"),
+            "created_at": dump.get("created_at"),
+            "due_date": dump.get("due_date"),
+            "carried_from_dump": old_dump_id,
+        }.items() if v is not None})
+
+        append_record(old_ledger_path, {
+            "type": "dump",
+            "id": old_dump_id,
+            "_operation": "dump_rollover",
+            "carried_to": new_ledger_path.name,
+        })
+
+        carried_dumps.append({"id": old_dump_id, "text": dump.get("text")})
+
     return {
         "performed": True,
         "from": old_ledger_path.name,
         "to": new_ledger_path.name,
         "carried_over": len(carried),
         "tasks": carried,
+        "dumps_carried_over": len(carried_dumps),
+        "dumps": carried_dumps,
     }

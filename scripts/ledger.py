@@ -280,6 +280,20 @@ def get_carry_over_tasks(ledger: list[dict]) -> list[dict]:
     ]
 
 
+def get_carry_over_dumps(ledger: list[dict]) -> list[dict]:
+    """Retorna dumps não convertidos que devem ser carregados para a próxima semana."""
+    converted_ids = {
+        r["id"]
+        for r in ledger
+        if r.get("type") == "dump" and r.get("_operation") == "convert"
+    }
+    seen = {}
+    for r in ledger:
+        if r.get("type") == "dump" and r.get("_operation") != "convert":
+            seen[r["id"]] = r  # mantém última versão de cada dump
+    return [d for dump_id, d in seen.items() if dump_id not in converted_ids]
+
+
 def get_changes_since(ledger: list[dict], since: datetime) -> list[dict]:
     """Retorna todas as operações CRUD desde o timestamp."""
     changes = []

@@ -1117,6 +1117,88 @@ def test_rollover_late_migration():
         print("✓ test_rollover_late_migration")
 
 
+def test_rollover_carries_pending_dumps(tmp_path):
+    """Dump não convertido deve ser migrado para o novo ledger."""
+    from scripts.ledger import append_record, get_ledger_path, get_week_start
+    from scripts.rollover import perform_rollover
+    from datetime import date, timedelta
+    import json
+
+    today = date.today()
+    last_sunday = get_week_start(today) - timedelta(days=7)
+    data_dir = tmp_path
+
+    old_ledger_path = get_ledger_path(last_sunday, today.year, data_dir)
+    old_ledger_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Cria um dump pendente no ledger antigo
+    append_record(old_ledger_path, {
+        "type": "dump",
+        "id": f"{last_sunday:%Y%m%d}_dump_001",
+        "text": "Lembrar de ligar pro dentista",
+        "created_at": last_sunday.isoformat(),
+    })
+
+    result = perform_rollover(data_dir, today, today.year)
+
+    assert result["performed"] is True
+    assert result["dumps_carried_over"] == 1
+
+    new_ledger_path = get_ledger_path(get_week_start(today), today.year, data_dir)
+    records = [json.loads(l) for l in new_ledger_path.read_text().splitlines() if l.strip()]
+    dump_records = [r for r in records if r.get("type") == "dump"]
+
+    assert len(dump_records) == 1
+    assert dump_records[0]["text"] == "Lembrar de ligar pro dentista"
+    assert dump_records[0]["carried_from_dump"] == f"{last_sunday:%Y%m%d}_dump_001"
+
+    print("✓ test_rollover_carries_pending_dumps")
+
+
+def test_rollover_skips_converted_dumps(tmp_path):
+    """Dump já convertido em task não deve ser migrado."""
+    from scripts.ledger import append_record, get_ledger_path, get_week_start
+    from scripts.rollover import perform_rollover
+    from datetime import date, timedelta
+    import json
+
+    today = date.today()
+    last_sunday = get_week_start(today) - timedelta(days=7)
+    data_dir = tmp_path
+
+    old_ledger_path = get_ledger_path(last_sunday, today.year, data_dir)
+    old_ledger_path.parent.mkdir(parents=True, exist_ok=True)
+
+    dump_id = f"{last_sunday:%Y%m%d}_dump_001"
+
+    # Cria dump e marca como convertido
+    append_record(old_ledger_path, {
+        "type": "dump",
+        "id": dump_id,
+        "text": "Comprar leite",
+        "created_at": last_sunday.isoformat(),
+    })
+    append_record(old_ledger_path, {
+        "type": "dump",
+        "id": dump_id,
+        "_operation": "convert",
+        "converted_to_task": "20240101_comprar_leite",
+        "converted_at": last_sunday.isoformat(),
+    })
+
+    result = perform_rollover(data_dir, today, today.year)
+
+    assert result["dumps_carried_over"] == 0
+
+    new_ledger_path = get_ledger_path(get_week_start(today), today.year, data_dir)
+    if new_ledger_path.exists():
+        records = [json.loads(l) for l in new_ledger_path.read_text().splitlines() if l.strip()]
+        dump_records = [r for r in records if r.get("type") == "dump"]
+        assert len(dump_records) == 0
+
+    print("✓ test_rollover_skips_converted_dumps")
+
+
 def test_word_weights_basic():
     """build_word_weights gera pesos com 3 fatores combinados."""
     from ledger import get_ledger_filename, get_week_start
