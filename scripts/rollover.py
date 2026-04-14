@@ -53,17 +53,25 @@ def perform_rollover(
             "carried_over": 0,
         }
 
-    if new_ledger_path.exists():
-        # Já existe ledger da semana atual — não sobrescreve
-        return {
-            "performed": False,
-            "reason": "Ledger da semana atual já existe",
-            "carried_over": 0,
-        }
-
     # Carrega tasks da semana anterior
     old_ledger = load_ledger(old_ledger_path)
     carry_tasks = get_carry_over_tasks(old_ledger)
+
+    # Filtra tasks que já foram migradas (têm _operation: "rollover" no ledger antigo)
+    already_rolled = {
+        r["id"]
+        for r in old_ledger
+        if r.get("_operation") == "rollover"
+    }
+    carry_tasks = [t for t in carry_tasks if t["id"] not in already_rolled]
+
+    if new_ledger_path.exists() and not carry_tasks:
+        # Ledger atual já existe e não há tasks pendentes de migração
+        return {
+            "performed": False,
+            "reason": "Ledger da semana atual já existe e todas as tasks foram migradas",
+            "carried_over": 0,
+        }
 
     carried = []
 
