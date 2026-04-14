@@ -1,9 +1,12 @@
 // ------------------------------------------------------------------
 // Janus → Vita routing com sessions_send (Fase 1 + Fase 2)
 //
-// Snippet para o plugin/routing do Janus. Mantém referência à
-// sessão da Vita criada pelo cron matinal e comunica via
+// Snippet para o plugin/routing do Janus. Usa a sessão nomeada
+// "vita-daily" criada pelo cron matinal e comunica via
 // sessions_send (sem bootstrap repetido).
+//
+// A sessão "vita-daily" persiste entre runs do cron e reseta
+// automaticamente às 04:00 (default do OpenClaw).
 //
 // Referência: patches/vita-SESSION-DESIGN.md (Camadas 1 e 4)
 // ------------------------------------------------------------------
@@ -14,56 +17,48 @@ import { execSync } from "child_process";
 const VITA_SKILL_PATH = "/path/to/vita-task-manager";
 const CLI = `python3 ${VITA_SKILL_PATH}/scripts/cli.py`;
 
-// ------------------------------------------------------------------
-// Fase 1: Routing com sessão quente
-// ------------------------------------------------------------------
+// Session key fixa — criada pelo cron-daily.sh às 06:00
+const VITA_SESSION_KEY = "session:vita-daily";
 
-interface VitaRouter {
-  vitaSessionKey: string | null;
-}
+// ------------------------------------------------------------------
+// Fase 1: Routing com sessão nomeada
+// ------------------------------------------------------------------
 
 /**
- * Roteia task para a Vita, priorizando sessão existente.
+ * Roteia task para a Vita via sessão nomeada.
  *
  * Fluxo:
- * 1. Se existe sessão viva (criada pelo cron), usa sessions_send
- * 2. Se sessão morreu (expirou, restart), faz spawn efêmero
+ * 1. Tenta sessions_send pra "session:vita-daily" (barato)
+ * 2. Se falhar (sessão resetou/morreu), faz spawn efêmero
  *
  * O cron matinal (cron-daily.sh) cria a sessão às 06:00.
- * O Janus captura o sessionKey do announce e armazena aqui.
+ * Reset automático às 04:00 garante ciclo diário limpo.
  */
 async function routeToVita(
-  this: VitaRouter,
   task: string,
   // Estas funções vêm do SDK do OpenClaw — assinaturas ilustrativas
   sessions_send: (key: string, msg: string, opts?: { timeoutSeconds: number }) => Promise<{ ok: boolean; reply?: string }>,
   sessions_spawn: (agentId: string, task: string, opts?: Record<string, unknown>) => Promise<{ childSessionKey: string }>,
 ): Promise<{ ok: boolean; reply?: string }> {
 
-  // Tenta sessão quente primeiro (barato: ~1-3k tokens, sem bootstrap)
-  if (this.vitaSessionKey) {
-    const result = await sessions_send(this.vitaSessionKey, task, {
-      timeoutSeconds: 30,
-    });
+  // Tenta sessão nomeada primeiro (barato: ~1-3k tokens, sem bootstrap)
+  const result = await sessions_send(VITA_SESSION_KEY, task, {
+    timeoutSeconds: 30,
+  });
 
-    if (result.ok) return result;
-
-    // Sessão morreu — limpa referência
-    this.vitaSessionKey = null;
-  }
+  if (result.ok) return result;
 
   // Fallback: spawn efêmero (caro: ~13k tokens com bootstrap)
-  // Usa haiku para operações simples fora do horário
+  // Só acontece se a sessão nomeada ainda não foi criada (cron
+  // não rodou, ou entre 04:00-06:00 quando não há sessão ativa)
   const spawn = await sessions_spawn("vita", task, {
     model: "haiku",
   });
-  this.vitaSessionKey = spawn.childSessionKey;
 
-  // Aguarda resposta do spawn
-  const result = await sessions_send(spawn.childSessionKey, task, {
+  const spawnResult = await sessions_send(spawn.childSessionKey, task, {
     timeoutSeconds: 60,
   });
-  return result;
+  return spawnResult;
 }
 
 
@@ -172,7 +167,6 @@ function checkAlerts(today: string, year: number): {
  * 5. Opcionalmente enriquece com alertas de check-alerts
  */
 async function routeToVitaWithPlugin(
-  this: VitaRouter,
   message: string,
   today: string,
   year: number,
@@ -192,7 +186,7 @@ async function routeToVitaWithPlugin(
       // Duplicate Guardrail: warning → escala pra Vita
       if (result.warning?.type === "duplicate_suspect") {
         const vitaTask = `O usuário pediu: "${message}". O ledger-add retornou warning de duplicata: ${JSON.stringify(result.warning)}. Apresente as opções ao usuário conforme o Duplicate Guardrail.`;
-        const vitaResult = await routeToVita.call(this, vitaTask, sessions_send, sessions_spawn);
+        const vitaResult = await routeToVita(vitaTask, sessions_send, sessions_spawn);
         return { ...vitaResult, source: "vita" };
       }
 
@@ -203,7 +197,7 @@ async function routeToVitaWithPlugin(
       };
     } catch (error) {
       // CLI falhou → delega pra Vita como fallback
-      const vitaResult = await routeToVita.call(this, message, sessions_send, sessions_spawn);
+      const vitaResult = await routeToVita(message, sessions_send, sessions_spawn);
       return { ...vitaResult, source: "vita" };
     }
   }
@@ -220,7 +214,7 @@ async function routeToVitaWithPlugin(
     // check-alerts falhou — não bloqueia o fluxo
   }
 
-  const vitaResult = await routeToVita.call(this, enrichedMessage, sessions_send, sessions_spawn);
+  const vitaResult = await routeToVita(enrichedMessage, sessions_send, sessions_spawn);
   return { ...vitaResult, source: "vita" };
 }
 

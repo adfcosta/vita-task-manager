@@ -2,8 +2,12 @@
 # ------------------------------------------------------------------
 # Vita Morning — Cron diário às 06:00 (Fase 1)
 #
-# Cria sessão isolada da Vita, roda daily-tick e entrega
-# diarias.txt via canal configurado.
+# Roda daily-tick na sessão nomeada "vita-daily". A sessão
+# persiste entre runs, permitindo que o Janus comunique via
+# sessions_send ao longo do dia sem bootstrap repetido.
+#
+# Reset automático: 04:00 (default do OpenClaw) — a sessão
+# do dia anterior morre antes do cron das 06:00 criar a nova.
 #
 # Referência: patches/vita-SESSION-DESIGN.md (Camada 1)
 # Standing Order: Morning Pipeline (patches/vita-AGENTS.md)
@@ -14,7 +18,7 @@ openclaw cron add \
   --cron "0 6 * * *" \
   --tz "America/Maceio" \
   --agent "vita" \
-  --session isolated \
+  --session "session:vita-daily" \
   --message "Execute o daily-tick da skill vita-task-manager:
 
 python3 scripts/cli.py daily-tick \\
