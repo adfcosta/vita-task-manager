@@ -1,23 +1,19 @@
 // ------------------------------------------------------------------
-// Configuração do agente Vita no OpenClaw (Fase 1)
+// Configuração OpenClaw para otimização de sessão da Vita (Fase 1)
 //
-// Adicionar ao arquivo de configuração do agente Vita no gateway.
-// Estes campos controlam persistência de sessão, pruning de
-// contexto e memory flush pré-compactação.
+// Merge no openclaw.json do gateway. Contém 2 blocos em
+// agents.defaults (afetam todos os agentes):
 //
-// Referência: patches/vita-SESSION-DESIGN.md (Camadas 1, 2, 3)
+//   1. contextPruning — remove tool results antigos do contexto
+//   2. compaction.memoryFlush — salva estado antes de compactar
+//
+// session.reset.idleMinutes NÃO é necessário: o reset diário
+// padrão do OpenClaw (04:00) já garante que a sessão nomeada
+// "vita-daily" sobreviva das 06:00 até as 04:00 do dia seguinte.
+//
+// Referência: patches/vita-SESSION-DESIGN.md (Camadas 2, 3)
 // ------------------------------------------------------------------
 {
-  // --- Camada 1: Persistência da sessão intra-dia ---
-  // A sessão criada pelo cron matinal sobrevive o dia todo.
-  // Janus comunica via sessions_send sem pagar bootstrap novamente.
-  // 720 min = 12h → cobre 06:00-18:00 mesmo sem interação.
-  "session": {
-    "reset": {
-      "idleMinutes": 720
-    }
-  },
-
   "agents": {
     "defaults": {
 
@@ -28,6 +24,9 @@
       //
       // Efeito: contexto cresce só pelo texto da conversa (~200 tokens
       // por turno). Compactação raramente é necessária num dia normal.
+      //
+      // NOTA: agents.defaults afeta todos os agentes. Se 2m for
+      // agressivo demais para outros agentes, subir para 5m.
       "contextPruning": {
         "mode": "cache-ttl",
         "ttl": "2m"
@@ -40,6 +39,10 @@
       //
       // O arquivo memory/YYYY-MM-DD.md sobrevive à compactação e
       // pode ser lido pela Vita para recuperar contexto perdido.
+      //
+      // NOTA: agents.defaults afeta todos os agentes. O memoryFlush
+      // é seguro para todos — salvar estado antes de compactar é
+      // sempre melhor que perder.
       "compaction": {
         "memoryFlush": {
           "enabled": true,

@@ -2,8 +2,10 @@
 # ------------------------------------------------------------------
 # Vita Weekly — Cron semanal domingo 20:00 (Fase 1)
 #
-# Cria sessão isolada da Vita, roda weekly-tick, apresenta
-# taxa de conclusão e candidatos de recorrência.
+# Roda weekly-tick na mesma sessão nomeada "vita-daily".
+# Reutiliza a sessão do dia (se ainda viva) para ter contexto
+# das interações da semana. Se a sessão já resetou (após 04:00),
+# cria uma nova automaticamente.
 #
 # Referência: patches/vita-SESSION-DESIGN.md (Camada 1)
 # Standing Order: Weekly Reflection (patches/vita-AGENTS.md)
@@ -14,7 +16,7 @@ openclaw cron add \
   --cron "0 20 * * 0" \
   --tz "America/Maceio" \
   --agent "vita" \
-  --session isolated \
+  --session "session:vita-daily" \
   --message "Execute o weekly-tick da skill vita-task-manager:
 
 python3 scripts/cli.py weekly-tick \\
