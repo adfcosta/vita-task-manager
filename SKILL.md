@@ -1,6 +1,11 @@
 ---
 name: vita-task-manager
 description: Gerenciar tarefas pessoais via ledger JSONL e CLI dedicada.
+metadata:
+  openclaw:
+    requires:
+      bins:
+        - python3
 ---
 
 # Vita Task Manager
