@@ -1,29 +1,44 @@
 // ------------------------------------------------------------------
-// Configuração OpenClaw para otimização de sessão da Vita (Fase 1)
+// Configuração OpenClaw para a sessão da Vita (Fase 1 + Fase 2)
 //
-// Merge no openclaw.json do gateway. Contém 2 blocos em
-// agents.defaults (afetam todos os agentes):
+// Merge no openclaw.json do gateway. Contém 3 blocos:
 //
-//   1. contextPruning — remove tool results antigos do contexto
-//   2. compaction.memoryFlush — salva estado antes de compactar
+//   1. session.reset — desativa reset diário do Gateway (TOP-LEVEL)
+//   2. agents.defaults.contextPruning + compaction (todos os agentes)
+//   3. agents.list[vita].heartbeat — mantém Vita viva 06-23h
 //
-// session.reset.idleMinutes NÃO é necessário: o reset diário
-// padrão do OpenClaw (04:00) já garante que a sessão nomeada
-// "vita-daily" sobreviva das 06:00 até as 04:00 do dia seguinte.
+// ATENÇÃO: se qualquer entrada em agents.list[] tem bloco `heartbeat`,
+// apenas esses agentes rodam heartbeats. Os outros (Janus, Faber, etc.)
+// ficam com zero heartbeat — é o que queremos: só Vita precisa ser
+// mantida "acordada" por um mecanismo artificial.
 //
-// Referência: patches/vita-SESSION-DESIGN.md (Camadas 2, 3)
+// Referência: patches/vita-SESSION-DESIGN.md (Camadas 1-4)
 // ------------------------------------------------------------------
 {
+  // ----------------------------------------------------------------
+  // Camada 1: política global de sessão
+  // ----------------------------------------------------------------
+  // Por padrão o Gateway reseta sessões às 04:00 todos os dias. Isso
+  // quebra a continuidade de contexto da Vita. Trocamos para `idle`
+  // com janela maior que 24h — a sessão só morre se ficar realmente
+  // inativa por 48h (não vai acontecer com heartbeat ligado).
+  "session": {
+    "reset": {
+      "mode": "idle",
+      "idleMinutes": 2880
+    }
+  },
+
   "agents": {
+    // --------------------------------------------------------------
+    // Camadas 2 e 3: otimizações aplicadas a todos os agentes
+    // --------------------------------------------------------------
     "defaults": {
 
       // --- Camada 2: Pruning de tool results ---
       // Cada comando CLI retorna JSON de ~500-2k tokens que é útil
       // por segundos (pra formular resposta) e depois vira peso morto.
       // TTL de 2 min remove tool results antigos automaticamente.
-      //
-      // Efeito: contexto cresce só pelo texto da conversa (~200 tokens
-      // por turno). Compactação raramente é necessária num dia normal.
       //
       // NOTA: agents.defaults afeta todos os agentes. Se 2m for
       // agressivo demais para outros agentes, subir para 5m.
@@ -36,13 +51,6 @@
       // Se apesar do pruning a compactação for necessária (dia
       // atípico com muitas interações longas), o memory flush salva
       // estado crítico em disco ANTES de compactar.
-      //
-      // O arquivo memory/YYYY-MM-DD.md sobrevive à compactação e
-      // pode ser lido pela Vita para recuperar contexto perdido.
-      //
-      // NOTA: agents.defaults afeta todos os agentes. O memoryFlush
-      // é seguro para todos — salvar estado antes de compactar é
-      // sempre melhor que perder.
       "compaction": {
         "memoryFlush": {
           "enabled": true,
@@ -50,6 +58,55 @@
           "systemPrompt": "Antes de compactar, salve em memory/YYYY-MM-DD.md: (1) tasks completadas hoje com task_ids, (2) tasks em progresso com task_ids e último status, (3) alertas pendentes, (4) contexto relevante das interações do dia. Use formato estruturado. Priorize task_ids — são irrecuperáveis sem consulta ao ledger."
         }
       }
-    }
+    },
+
+    // --------------------------------------------------------------
+    // Camada 4: Heartbeat da Vita — mantém main session viva
+    // --------------------------------------------------------------
+    // MERGE este bloco heartbeat na entrada existente da Vita em
+    // agents.list[]. Não sobrescreva os outros campos da Vita.
+    //
+    // Design:
+    //
+    //   • every: 55m  — abaixo do TTL de 1h do prompt cache, garante
+    //     que cada heartbeat pague cache_read (~10% do custo) em vez
+    //     de cache_write. Intervalo maior que 60m queima cache.
+    //
+    //   • session: main  — aquece a MAIN da Vita, que é onde o Janus
+    //     deposita delegações via sessions_send. Cada mensagem do
+    //     usuário delegada pra Vita chega com cache quente.
+    //
+    //   • isolatedSession: false  — preserva histórico de conversa
+    //     entre heartbeats. Com true, cada heartbeat é sessão fresca
+    //     (barato mas perde continuidade).
+    //
+    //   • target: none  — heartbeat NÃO envia mensagem pra canal
+    //     algum, só roda um turno interno pra manter sessão viva.
+    //     Evita bug conhecido (#65847) que vaza heartbeats pra chats.
+    //
+    //   • activeHours 06-23 Maceio  — ninguém manda mensagem às
+    //     3h da manhã; desligamos os heartbeats noturnos pra economia.
+    //     Fora da janela, idleMinutes: 2880 mantém a sessão viva.
+    //
+    "list": [
+      {
+        "id": "vita",
+        // ... outros campos da Vita (model, tools, prompt, etc.) ...
+        "heartbeat": {
+          "every": "55m",
+          "session": "main",
+          "isolatedSession": false,
+          "target": "none",
+          "lightContext": false,
+          "includeReasoning": false,
+          "timeoutSeconds": 45,
+          "activeHours": {
+            "start": "06:00",
+            "end": "23:00",
+            "timezone": "America/Maceio"
+          }
+        }
+      }
+    ]
   }
 }

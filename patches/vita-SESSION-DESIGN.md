@@ -1,15 +1,23 @@
 # Vita Session Optimization — Proposta de Design
 
-**Status:** Proposta  
-**Versão:** 2.9.0  
-**Data:** 2026-04-13  
+**Status:** Em produção (Camadas 2, 3, 4); Camada 1 revisada em v2.11.0  
+**Versão:** 2.11.0  
+**Data:** 2026-04-18  
 **Referências:**
 - https://docs.openclaw.ai/automation/cron-jobs
-- https://docs.openclaw.ai/tools/subagents
+- https://docs.openclaw.ai/gateway/heartbeat
+- https://docs.openclaw.ai/concepts/multi-agent
 - https://docs.openclaw.ai/reference/session-management-compaction
 - https://docs.openclaw.ai/concepts/session-pruning
 - https://docs.openclaw.ai/automation/standing-orders
 - https://docs.openclaw.ai/plugins/architecture (Plugin SDK)
+
+**Changelog:**
+- **v2.11.0** — Camada 1 reescrita: main session + heartbeat nativo
+  substitui sessão isolada diária via cron. Crons internos do OpenClaw
+  (systemEvent na main) substituem crons externos via shell.
+- **v2.10.0** — Camada 4 (Plugin SDK no Janus) implementada.
+- **v2.9.0** — Proposta inicial.
 
 ---
 
@@ -33,90 +41,126 @@ repetido.
 
 ## Solução: 4 camadas complementares
 
-### Camada 1 — Sessão isolada diária via cron
+### Camada 1 — Main session permanente + heartbeat nativo
 
-Em vez de múltiplos spawns efêmeros, um único cron cria uma sessão
-isolada por dia. O Janus comunica via `sessions_send` ao longo do
-dia, reutilizando a mesma sessão sem pagar bootstrap novamente.
+A Vita vive **na própria main session**, mantida aquecida pelo
+heartbeat nativo do OpenClaw (feature `agents.list[].heartbeat`).
+Janus delega via `sessions_send` diretamente pra essa main, sem
+nunca fazer `spawn`. Crons (daily/weekly tick) injetam `systemEvent`
+na mesma main — tudo vive em um único fio contínuo de contexto.
 
-```bash
-openclaw cron add \
-  --name "Vita morning" \
-  --cron "0 6 * * *" \
-  --tz "America/Maceio" \
-  --agent "vita" \
-  --session isolated \
-  --message "Rodar daily-tick com os paths da skill. Entregar diarias.txt." \
-  --announce
-```
+**Por que main e não sessão isolada diária:**
 
-**Por que isolada e não `session:vita-daily` (nomeada)?**
+A proposta original (v2.9.0) usava cron diário criando sessão
+isolada. Na implementação descobrimos três problemas:
 
-Sessões nomeadas persistem contexto entre dias. Isso causa:
-- Acúmulo lossy: cada compactação perde detalhes. Após 5 dias,
-  o contexto é um resumo de resumo de resumo.
-- Confusão temporal: Vita pode misturar o que aconteceu segunda
-  com o que aconteceu quarta.
-- Divergência: se algo muda no ledger fora da sessão, a Vita não
-  sabe — confia na memória em vez de verificar.
+1. **Daily reset do Gateway às 04:00** — o Gateway tem política
+   `session.reset.mode: "daily"` por padrão. Sessões nomeadas,
+   isoladas ou quaisquer outras são resetadas às 04:00 no fuso do
+   host. Nenhuma estratégia de nomenclatura escapa disso.
 
-Sessão isolada por dia evita todos esses problemas. Cada dia
-começa limpo. A memória intra-dia é suficiente e confiável.
+2. **Sessão isolada perde o benefício do cache** — cada spawn
+   paga `cache_write` do bootstrap. Com main aquecida por heartbeat,
+   todas as interações pagam `cache_read` (~10% do custo).
 
-**Ciclo de vida:**
+3. **Cron externo competindo com heartbeat** — shell cron
+   disparando `openclaw run --session isolated` é exatamente o que
+   o heartbeat nativo substitui com mais eficiência.
 
-```
-06:00  Cron cria sessão isolada → Vita nasce, roda daily-tick
-       Sessão fica viva aguardando mensagens
-
-08:30  Janus: sessions_send → mesma sessão (~1-3k tokens, sem bootstrap)
-09:15  Janus: sessions_send → mesma sessão
-14:00  Janus: sessions_send → mesma sessão
-...
-
-Próx. dia 06:00  Cron cria sessão nova → sessão anterior é limpa
-                  via sessionRetention configurado
-```
-
-**Persistência intra-dia:**
-
-A sessão isolada criada pelo cron segue as regras padrão de sessão
-(não `archiveAfterMinutes` de subagent). Para garantir que a sessão
-sobrevive o dia:
+**Solução em 3 configs:**
 
 ```json5
-// Config da Vita (agent-level)
+// 1. Desabilitar reset diário, usar reset por ociosidade
 {
   "session": {
     "reset": {
-      "idleMinutes": 720  // 12h — cobre 06:00-18:00 mesmo sem interação
+      "mode": "idle",
+      "idleMinutes": 2880  // 48h — só morre se sem atividade mesmo
     }
   }
 }
 ```
 
-**Fallback no Janus:**
-
-Se `sessions_send` falhar (sessão expirou, restart do gateway),
-o Janus faz spawn efêmero como fallback:
-
-```typescript
-async routeToVita(task: string) {
-  if (this.vitaSessionKey) {
-    const result = await sessions_send(this.vitaSessionKey, task, {
-      timeoutSeconds: 30
-    });
-    if (result.ok) return result;
-    this.vitaSessionKey = null;
+```json5
+// 2. Heartbeat SÓ na Vita (outros agentes não pagam overhead)
+{
+  "agents": {
+    "list": [{
+      "id": "vita",
+      "heartbeat": {
+        "every": "55m",              // abaixo do TTL de 1h do cache
+        "session": "main",            // aquece a sessão de delegação
+        "isolatedSession": false,     // preserva contexto entre turnos
+        "target": "none",             // não envia msg pra canal
+        "activeHours": {
+          "start": "06:00",
+          "end": "23:00",
+          "timezone": "America/Maceio"
+        },
+        "timeoutSeconds": 45
+      }
+    }]
   }
-
-  // Fallback: spawn efêmero (raro — só em falha)
-  const spawn = await sessions_spawn("vita", task, {
-    model: "haiku"  // fora do horário = operação simples
-  });
-  return spawn;
 }
 ```
+
+```bash
+# 3. Crons via scheduler nativo do OpenClaw (não shell cron)
+openclaw cron add --name "Vita morning" --cron "0 6 * * *" \
+  --tz "America/Maceio" --agent "vita" --session main --wake now \
+  --system-event "Execute o Morning Pipeline agora..."
+
+openclaw cron add --name "Vita weekly" --cron "0 20 * * 0" \
+  --tz "America/Maceio" --agent "vita" --session main --wake now \
+  --system-event "Execute o Weekly Reflection agora..."
+```
+
+**Ciclo de vida:**
+
+```
+06:00  Cron interno injeta systemEvent "Morning Pipeline" na main
+       Heartbeat wake-now dispara turno imediato
+       Vita roda daily-tick, entrega diarias.txt
+       Main session fica quente
+
+06:55  Heartbeat (55m) — turno interno leve, mantém cache
+07:50  Heartbeat — idem
+...
+
+09:15  Mensagem real: usuário → Janus → classifica:
+       CRUD simples → vita_quick_crud (plugin, 0 tokens, não toca main)
+       Complexo    → sessions_send → main da Vita
+                     Entrada na main quente = cache_read (~10%)
+
+...
+
+20:00  Cron semanal (só domingos) — systemEvent "Weekly Reflection"
+
+22:55  Último heartbeat antes de 23:00
+23:00  Heartbeat desliga via activeHours
+       Main fica dormente, mas viva (idleMinutes: 2880 = 48h)
+
+Dia seguinte 06:00  Primeiro heartbeat após activeHours, Morning Pipeline
+                    Main continua a mesma — contexto do dia anterior
+                    ainda acessível se necessário
+```
+
+**Por que usuário não perde contexto:**
+
+- `idleMinutes: 2880` (48h) > 7h de janela noturna → sessão não
+  morre durante a noite
+- Main session é append-only em `~/.openclaw/agents/vita/sessions/`
+  → estado persiste mesmo em restart do Gateway
+- Compactação (Camada 3) + memoryFlush garantem que dias muito
+  carregados não percam task_ids críticos
+
+**Fallback no Janus (Camada 4):**
+
+O plugin `vita-router` (Camada 4) trata o caso de main indisponível:
+se `sessions_send` falhar, tenta novamente uma vez; se persistir,
+escala pro usuário com mensagem explícita. Spawn efêmero foi
+**removido do design** — era um fallback que mascarava problemas
+reais de infra sem resolver.
 
 ### Camada 2 — Session pruning (cache-ttl)
 
@@ -324,12 +368,17 @@ Baseado nos dados reais de 07-13/04/2026 (49 sessões, 675k tokens/semana).
 
 ## Riscos e mitigações
 
-### Risco 1: Sessão expira durante o dia
+### Risco 1: Main session expira ou Gateway reinicia
 
-**Causa:** `idleMinutes` muito baixo, restart do gateway, falha de rede.
+**Causa:** Restart do Gateway, host host reinicia, falha de rede
+prolongada. `idleMinutes: 2880` garante que não expira por ociosidade
+dentro de qualquer janela realista.
 
-**Mitigação:** Fallback no Janus re-spawna automaticamente. Custo:
-um bootstrap extra (~13k tokens). Raro — estimativa de 1-2x/semana.
+**Mitigação:** Session store vive em disco (`~/.openclaw/agents/vita/
+sessions/`), então restart do Gateway recarrega a mesma main com
+histórico intacto. No pior caso (arquivo corrompido), próximo
+heartbeat às 06:00 cria main nova; usuário perde contexto de dias
+anteriores mas não perde nada do ledger (fonte de verdade).
 
 ### Risco 2: Compactação perde task_ids
 
@@ -399,13 +448,15 @@ usuário. Ex: "terminei de pensar sobre cancelar o dentista"
 }
 ```
 
-### Config do agente Vita
+### Config global (top-level) e da Vita
 
 ```json5
 {
+  // Top-level: desativa reset diário às 04:00 do Gateway
   "session": {
     "reset": {
-      "idleMinutes": 720
+      "mode": "idle",
+      "idleMinutes": 2880
     }
   },
   "agents": {
@@ -421,23 +472,41 @@ usuário. Ex: "terminei de pensar sobre cancelar o dentista"
           "systemPrompt": "Antes de compactar, salve em memory/YYYY-MM-DD.md: (1) tasks completadas hoje com task_ids, (2) tasks em progresso com task_ids e último status, (3) alertas pendentes, (4) contexto relevante das interações do dia. Use formato estruturado. Priorize task_ids."
         }
       }
-    }
+    },
+    "list": [
+      {
+        "id": "vita",
+        // ... outros campos (model, tools, prompt) ...
+        "heartbeat": {
+          "every": "55m",
+          "session": "main",
+          "isolatedSession": false,
+          "target": "none",
+          "activeHours": {
+            "start": "06:00",
+            "end": "23:00",
+            "timezone": "America/Maceio"
+          },
+          "timeoutSeconds": 45
+        }
+      }
+    ]
   }
 }
 ```
 
-### Cron do OpenClaw
+### Cron interno do OpenClaw (systemEvent na main)
 
 ```bash
-# Daily tick — cria sessão isolada da Vita às 06:00
+# Daily tick — injeta systemEvent na main da Vita às 06:00
 openclaw cron add \
   --name "Vita morning" \
   --cron "0 6 * * *" \
   --tz "America/Maceio" \
   --agent "vita" \
-  --session isolated \
-  --message "Rodar daily-tick com os paths configurados. Entregar diarias.txt via canal configurado. Se ok: false em qualquer sub-step, escalar ao usuário." \
-  --announce
+  --session main \
+  --wake now \
+  --system-event "Execute o Morning Pipeline agora usando a data de hoje. Rode daily-tick do CLI, verifique o resultado e entregue diarias.txt ao usuário com sumário breve."
 
 # Weekly tick — domingo 20:00
 openclaw cron add \
@@ -445,9 +514,9 @@ openclaw cron add \
   --cron "0 20 * * 0" \
   --tz "America/Maceio" \
   --agent "vita" \
-  --session isolated \
-  --message "Rodar weekly-tick. Apresentar taxa de conclusão e candidatos de recorrência. NÃO ativar regras sem aprovação do usuário." \
-  --announce
+  --session main \
+  --wake now \
+  --system-event "Execute o Weekly Reflection agora. Apresente taxa de conclusão e candidatos de recorrência. NÃO ative regras sem aprovação."
 ```
 
 ## Implementação por fases
