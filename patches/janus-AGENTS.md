@@ -14,7 +14,9 @@ Arquivo vivo: `~/.openclaw/workspace/janus/AGENTS.md`
 1. **Remover** a subseção `### Sessão persistente da Vita` dentro de
    `## Protocolo de Delegação` — ela descreve o modelo antigo (cron
    diário com sessão isolada + fallback via `sessions_spawn`), que foi
-   substituído em v2.11.0 por main session permanente + heartbeat nativo.
+   substituído em v2.11.0/v2.11.1 por main session permanente + heartbeat
+   nativo (delegação via `sessions_send`) e cron nativo em turno isolado
+   (ticks periódicos).
 2. **Inserir** o bloco delimitado por `<!-- BEGIN ... -->` / `<!-- END ... -->`
    deste arquivo **logo depois** de `## Protocolo de Delegação`, antes da
    próxima seção (`## DEVE FAZER` ou equivalente).
@@ -28,7 +30,7 @@ Substituir tudo entre os marcadores `<!-- BEGIN vita-task-manager ... -->` e
 
 ---
 
-<!-- BEGIN vita-task-manager v2.11.0 -->
+<!-- BEGIN vita-task-manager v2.11.1 -->
 ## Sistema de Tasks (via vita-router plugin)
 
 O domínio "vida pessoal / tasks / rotina" pertence à **Vita**. Janus não
@@ -86,9 +88,12 @@ A Vita tem **uma única sessão principal** em `agent:vita:main` que:
 - Vive indefinidamente (reset por `idle` com janela de 48h, não por dia).
 - É aquecida a cada 55 min das 06h às 23h (Maceio) via heartbeat nativo
   do Gateway — garante cache_read em vez de cache_write.
-- Recebe eventos do Morning Pipeline (06:00) e Weekly Reflection
-  (domingo 20:00) via `openclaw cron` com `--session main
-  --system-event`, não por sessão isolada.
+- Os cron jobs Morning Pipeline (06:00) e Weekly Reflection (domingo
+  20:00) **não injetam nessa main** — o Gateway restringe `--session
+  main` ao agente default. Eles disparam turnos isolados na Vita
+  (`--session isolated --message`) que escrevem em disco
+  (`output/diarias.txt`, ledger JSONL). A main consulta o disco quando
+  a conversa chega — é assim que a Vita "sabe" o que o tick produziu.
 
 Quando Janus precisa da Vita:
 
@@ -126,7 +131,7 @@ que leitura de alertas (priorização, reorganização), delegar à Vita via
 
 - [ ] Subseção antiga `### Sessão persistente da Vita` removida do
       `## Protocolo de Delegação` do Janus
-- [ ] Marcadores `<!-- BEGIN vita-task-manager v2.11.0 -->` e
+- [ ] Marcadores `<!-- BEGIN vita-task-manager v2.11.1 -->` e
       `<!-- END vita-task-manager -->` presentes no AGENTS vivo
 - [ ] `openclaw plugin list` mostra `vita-router` ativo
 - [ ] Rotina de sanity: mandar "terminei X" pro Janus via WhatsApp e

@@ -3,7 +3,7 @@
 Esta pasta contém **deltas** que a skill `vita-task-manager` enxerta nos arquivos
 do agente Vita no Domus. São blocos de conteúdo, não arquivos completos.
 
-**Versão atual dos patches:** v2.11.0
+**Versão atual dos patches:** v2.11.1
 
 ## Filosofia: delta, não substituição
 

@@ -1,7 +1,7 @@
 # Vita Session Optimization — Proposta de Design
 
-**Status:** Em produção (Camadas 2, 3, 4); Camada 1 revisada em v2.11.0  
-**Versão:** 2.11.0  
+**Status:** Em produção (Camadas 2, 3, 4); Camada 1 revisada em v2.11.1  
+**Versão:** 2.11.1  
 **Data:** 2026-04-18  
 **Referências:**
 - https://docs.openclaw.ai/automation/cron-jobs
@@ -13,9 +13,17 @@
 - https://docs.openclaw.ai/plugins/architecture (Plugin SDK)
 
 **Changelog:**
+- **v2.11.1** — Camada 1 corrigida após descoberta em runtime: Gateway
+  rejeita `--session main` para non-default agents (erro explícito:
+  *"sessionTarget 'main' is only valid for the default agent"*). Crons
+  da Vita passam a usar `--session isolated --message` (payload kind
+  `agentTurn`) — mesmo padrão dos crons do Faber. Continuidade da Vita
+  entre o tick e o uso vivo vem do **disco** (output/diarias.txt,
+  ledger), não do histórico da main. Heartbeat continua aquecendo a
+  main pra delegações via `sessions_send` do Janus.
 - **v2.11.0** — Camada 1 reescrita: main session + heartbeat nativo
-  substitui sessão isolada diária via cron. Crons internos do OpenClaw
-  (systemEvent na main) substituem crons externos via shell.
+  substitui sessão isolada diária via cron. (Parcialmente revertido
+  em v2.11.1 apenas pra parte de cron — restante do design continua.)
 - **v2.10.0** — Camada 4 (Plugin SDK no Janus) implementada.
 - **v2.9.0** — Proposta inicial.
 
@@ -46,8 +54,15 @@ repetido.
 A Vita vive **na própria main session**, mantida aquecida pelo
 heartbeat nativo do OpenClaw (feature `agents.list[].heartbeat`).
 Janus delega via `sessions_send` diretamente pra essa main, sem
-nunca fazer `spawn`. Crons (daily/weekly tick) injetam `systemEvent`
-na mesma main — tudo vive em um único fio contínuo de contexto.
+nunca fazer `spawn`.
+
+Crons (daily/weekly tick) disparam **turnos isolados** na Vita
+(`--session isolated --message`) — não injetam na main. O Gateway
+restringe `--session main` ao agente default (Janus); non-default
+agents (Vita, Faber) só podem receber cron via isolated + agentTurn.
+Continuidade entre o tick e o uso vivo da Vita vem do disco:
+`output/diarias.txt` e o ledger JSONL são fonte canônica, lidos pela
+main quando precisa.
 
 **Por que main e não sessão isolada diária:**
 
@@ -65,7 +80,12 @@ isolada. Na implementação descobrimos três problemas:
 
 3. **Cron externo competindo com heartbeat** — shell cron
    disparando `openclaw run --session isolated` é exatamente o que
-   o heartbeat nativo substitui com mais eficiência.
+   o heartbeat nativo substitui com mais eficiência. Nota: o cron
+   interno da Vita **também** roda em isolated (restrição do
+   Gateway para non-default agents), mas como passa pelo scheduler
+   nativo participa do mesmo ciclo de execução e respeita a política
+   de sessão configurada — diferente do shell cron que era cego ao
+   Gateway.
 
 **Solução em 3 configs:**
 
@@ -105,45 +125,57 @@ isolada. Na implementação descobrimos três problemas:
 ```
 
 ```bash
-# 3. Crons via scheduler nativo do OpenClaw (não shell cron)
+# 3. Crons via scheduler nativo do OpenClaw
+#    (non-default agents como Vita exigem --session isolated --message)
 openclaw cron add --name "Vita morning" --cron "0 6 * * *" \
-  --tz "America/Maceio" --agent "vita" --session main --wake now \
-  --system-event "Execute o Morning Pipeline agora..."
+  --tz "America/Maceio" --agent "vita" --session isolated \
+  --message "Execute o Morning Pipeline agora..."
 
 openclaw cron add --name "Vita weekly" --cron "0 20 * * 0" \
-  --tz "America/Maceio" --agent "vita" --session main --wake now \
-  --system-event "Execute o Weekly Reflection agora..."
+  --tz "America/Maceio" --agent "vita" --session isolated \
+  --message "Execute o Weekly Reflection agora..."
 ```
 
 **Ciclo de vida:**
 
 ```
-06:00  Cron interno injeta systemEvent "Morning Pipeline" na main
-       Heartbeat wake-now dispara turno imediato
-       Vita roda daily-tick, entrega diarias.txt
-       Main session fica quente
+06:00  Cron interno dispara TURNO ISOLADO da Vita (agentTurn)
+       Vita roda daily-tick no turno, escreve output/diarias.txt + ledger
+       Turno termina — sessão isolada é descartada
+       Main session da Vita segue aquecida em paralelo via heartbeat
 
-06:55  Heartbeat (55m) — turno interno leve, mantém cache
+06:55  Heartbeat na main (55m) — turno interno leve, mantém cache
 07:50  Heartbeat — idem
 ...
 
 09:15  Mensagem real: usuário → Janus → classifica:
        CRUD simples → vita_quick_crud (plugin, 0 tokens, não toca main)
        Complexo    → sessions_send → main da Vita
+                     Main LÊ output/diarias.txt como faz em qualquer
+                     interação → "sabe" o que o tick produziu de manhã
                      Entrada na main quente = cache_read (~10%)
 
 ...
 
-20:00  Cron semanal (só domingos) — systemEvent "Weekly Reflection"
+20:00  Cron semanal (só domingos) — turno isolado, weekly-tick
+       Resultado (execution-history, recurrence-candidates) vai pra disco
 
 22:55  Último heartbeat antes de 23:00
 23:00  Heartbeat desliga via activeHours
        Main fica dormente, mas viva (idleMinutes: 2880 = 48h)
 
-Dia seguinte 06:00  Primeiro heartbeat após activeHours, Morning Pipeline
+Dia seguinte 06:00  Cron isolado de novo; heartbeat volta após activeHours
                     Main continua a mesma — contexto do dia anterior
                     ainda acessível se necessário
 ```
+
+**Por que o tick em isolated não é um problema:**
+
+O output do tick é **sempre arquivo** (`diarias.txt`, `ledger.jsonl`,
+`historico-execucao.md`). A Vita nunca consultou o histórico da sessão
+pra saber "o que o daily-tick fez" — sempre leu `diarias.txt`. Então a
+perda de continuidade conversacional entre o turno do cron e a main é
+inexistente: a fonte de verdade é o disco, não a conversa.
 
 **Por que usuário não perde contexto:**
 
@@ -495,18 +527,22 @@ usuário. Ex: "terminei de pensar sobre cancelar o dentista"
 }
 ```
 
-### Cron interno do OpenClaw (systemEvent na main)
+### Cron interno do OpenClaw (turno isolado, agentTurn)
+
+> **Restrição do Gateway:** non-default agents (Vita, Faber, …) só
+> aceitam cron via `--session isolated --message` (payload kind
+> `agentTurn`). `--session main` é reservado ao agente default (Janus).
+> O mesmo padrão já é usado pelos crons do Faber em produção.
 
 ```bash
-# Daily tick — injeta systemEvent na main da Vita às 06:00
+# Daily tick — turno isolado na Vita às 06:00
 openclaw cron add \
   --name "Vita morning" \
   --cron "0 6 * * *" \
   --tz "America/Maceio" \
   --agent "vita" \
-  --session main \
-  --wake now \
-  --system-event "Execute o Morning Pipeline agora usando a data de hoje. Rode daily-tick do CLI, verifique o resultado e entregue diarias.txt ao usuário com sumário breve."
+  --session isolated \
+  --message "Execute o Morning Pipeline agora usando a data de hoje. Rode daily-tick do CLI, verifique o resultado e entregue diarias.txt ao usuário com sumário breve."
 
 # Weekly tick — domingo 20:00
 openclaw cron add \
@@ -514,9 +550,8 @@ openclaw cron add \
   --cron "0 20 * * 0" \
   --tz "America/Maceio" \
   --agent "vita" \
-  --session main \
-  --wake now \
-  --system-event "Execute o Weekly Reflection agora. Apresente taxa de conclusão e candidatos de recorrência. NÃO ative regras sem aprovação."
+  --session isolated \
+  --message "Execute o Weekly Reflection agora. Apresente taxa de conclusão e candidatos de recorrência. NÃO ative regras sem aprovação."
 ```
 
 ## Implementação por fases
