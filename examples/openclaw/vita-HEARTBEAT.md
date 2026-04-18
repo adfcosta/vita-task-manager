@@ -31,8 +31,12 @@ Pré-requisitos antes de ativar:
 
 Execute exatamente estes passos, sem variar:
 
-1. `exec`:
-   `cd skills/vita-task-manager && python3 scripts/cli.py heartbeat-tick --today $(date +%d/%m) --year $(date +%Y) --data-dir data`
+1. `exec` (substitua `DD/MM` e `YYYY` pela data de hoje):
+   `python3 /home/node/.openclaw/workspace/vita/skills/vita-task-manager/scripts/cli.py heartbeat-tick --today DD/MM --year YYYY --data-dir /home/node/.openclaw/workspace/vita/skills/vita-task-manager/data`
+
+   **Atenção**: invocação direta do Python com paths absolutos.
+   NÃO use `cd ... && python3 ...` (preflight do Gateway bloqueia
+   `complex interpreter invocation`).
 
 2. Ler o JSON retornado.
 

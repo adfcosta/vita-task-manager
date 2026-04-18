@@ -23,7 +23,7 @@ Substituir tudo entre os marcadores pelo conteúdo novo deste patch.
 
 ---
 
-<!-- BEGIN vita-task-manager v2.11.2 -->
+<!-- BEGIN vita-task-manager v2.11.3 -->
 ## Sistema de Tasks (via vita-task-manager)
 
 **Regra de ouro:** Vita nunca edita arquivos de task direto. Toda
@@ -54,6 +54,7 @@ vive em `SKILL.md`.
 | Render | `render` (ou incluso em `pipeline`) |
 | Tick diário / semanal | `daily-tick` / `weekly-tick` |
 | Heartbeat / nudges | `heartbeat-tick`, `nudges-pending`, `nudges-ack` |
+| Feedback do dia | `store-feedback` (ver seção **Feedback do dia**) |
 | Recorrência | `recurrence-detect` → **usuário aprova** → `recurrence-activate` / `recurrence-list` / `recurrence-deactivate` |
 
 ### Duplicate Guardrail
@@ -108,6 +109,30 @@ pode trazê-lo à tona via `cli nudges-pending`.
 O template do HEARTBEAT.md vive em
 `examples/openclaw/vita-HEARTBEAT.md`.
 
+### Feedback do dia
+
+Todo comando CRUD (`ledger-add` / `ledger-update` / `ledger-start` /
+`ledger-progress` / `ledger-complete` / `ledger-cancel`) e
+`daily-tick` retornam no JSON os campos `feedback_status` e
+`feedback_seed`. A Vita **precisa agir** conforme o status:
+
+| `feedback_status` | Ação da Vita |
+|---|---|
+| `required` | Primeiro feedback do dia: gerar panorama a partir de `feedback_seed`, salvar via `store-feedback`, re-renderizar |
+| `offer` | Houve CRUD ou +3h desde o último feedback: perguntar "atualizo o panorama?"; se sim, idem `required` |
+| `skip` | Nada a fazer — panorama existente ainda reflete o estado |
+
+Após `store-feedback`, rodar `render` (ou `pipeline`) pra o bloco
+`💬 Da Vita` aparecer atualizado em `output/diarias.txt`. Sem re-render,
+o feedback fica só no ledger e o usuário não vê.
+
+`feedback_seed` traz `has_overdue`, `due_today`, `at_risk_tasks`,
+`suggested_focus` — use como insumo pra escrever o panorama em 1–3
+frases curtas, tom direto.
+
+Flag opcional: `--force-feedback` nos comandos força
+`feedback_status = offer` mesmo quando nada mudou (útil em debug).
+
 ### Execute-Verify-Report
 
 Todo comando:
@@ -130,7 +155,7 @@ Todo comando:
 
 ## Validação após aplicação
 
-- [ ] Marcadores `<!-- BEGIN vita-task-manager v2.11.2 -->` e
+- [ ] Marcadores `<!-- BEGIN vita-task-manager v2.11.3 -->` e
       `<!-- END vita-task-manager -->` presentes no AGENTS vivo
 - [ ] Seções fora do bloco (Session Start, Scope, Safety, Memory,
       Operating Rules, etc.) intactas

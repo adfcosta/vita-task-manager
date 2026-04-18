@@ -2,7 +2,7 @@
 
 Sistema de gerenciamento de tarefas pessoais com **ledger JSONL** como fonte de verdade, otimizado para TDAH.
 
-**Versão:** 2.11.2  
+**Versão:** 2.11.3  
 **Localização:** `/home/node/.openclaw/workspace/vita/skills/vita-task-manager/`
 
 ---
