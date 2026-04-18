@@ -45,6 +45,12 @@ try:
         detect_recurrence_candidates,
         get_active_recurrence_rules,
     )
+    from .heartbeat import (
+        build_heartbeat_nudges,
+        load_heartbeat_config,
+        get_pending_nudges,
+        ack_nudge,
+    )
 except ImportError:
     from feedback_input import build_daily_summary
     from ledger import get_all_active_tasks, get_current_task_state, get_ledger_path, load_ledger, make_task_id
@@ -83,6 +89,12 @@ except ImportError:
         deactivate_recurrence_rule,
         detect_recurrence_candidates,
         get_active_recurrence_rules,
+    )
+    from heartbeat import (
+        build_heartbeat_nudges,
+        load_heartbeat_config,
+        get_pending_nudges,
+        ack_nudge,
     )
 
 
@@ -993,6 +1005,52 @@ def cmd_weekly_tick(args) -> int:
     return 0 if overall_ok else 1
 
 
+def cmd_heartbeat_tick(args) -> int:
+    """Detecta alertas críticos, aplica cooldown, persiste nudges, retorna emit info."""
+    data_dir = Path(args.data_dir)
+    today = _ddmm_to_date(args.today, args.year)
+    config = load_heartbeat_config(data_dir)
+    cooldown_hours = args.cooldown_hours if args.cooldown_hours is not None else config["cooldown_hours"]
+
+    alerts_result = _build_alerts(data_dir, today, args.year)
+    heartbeat_result = build_heartbeat_nudges(
+        data_dir=data_dir,
+        alerts=alerts_result["alerts"],
+        cooldown_hours=cooldown_hours,
+    )
+
+    _emit({
+        "ok": True,
+        "action": "heartbeat_tick",
+        "today": args.today,
+        "alerts_total": alerts_result.get("total", len(alerts_result["alerts"])),
+        "nudges_new": heartbeat_result["nudges_new"],
+        "suppressed_by_cooldown": heartbeat_result["suppressed_by_cooldown"],
+        "non_critical_skipped": heartbeat_result["non_critical_skipped"],
+        "emit_text": heartbeat_result["emit_text"],
+        "emit_target": config["emit_target"],
+    })
+    return 0
+
+
+def cmd_nudges_pending(args) -> int:
+    """Lista nudges pendentes (não acked)."""
+    pending = get_pending_nudges(Path(args.data_dir))
+    _emit({
+        "ok": True,
+        "count": len(pending),
+        "nudges": pending,
+    })
+    return 0
+
+
+def cmd_nudges_ack(args) -> int:
+    """Marca um nudge como acked."""
+    record = ack_nudge(Path(args.data_dir), args.nudge_id, source=args.source)
+    _emit({"ok": True, "ack": record})
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="CLI do Vita Task Manager.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1283,6 +1341,23 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--min-occurrences", type=int, default=5)
     p.add_argument("--recurrence-weeks", type=int, default=4)
     p.set_defaults(func=cmd_weekly_tick)
+
+    p = sub.add_parser("heartbeat-tick", help="Detecta alertas críticos e emite nudges proativos")
+    p.add_argument("--today", required=True, help="Data de hoje (DD/MM)")
+    p.add_argument("--year", type=int, required=True)
+    p.add_argument("--data-dir", required=True)
+    p.add_argument("--cooldown-hours", type=int, default=None, help="Override do cooldown do config")
+    p.set_defaults(func=cmd_heartbeat_tick)
+
+    p = sub.add_parser("nudges-pending", help="Lista nudges pendentes (não acked)")
+    p.add_argument("--data-dir", required=True)
+    p.set_defaults(func=cmd_nudges_pending)
+
+    p = sub.add_parser("nudges-ack", help="Marca nudge como acked")
+    p.add_argument("--nudge-id", required=True)
+    p.add_argument("--data-dir", required=True)
+    p.add_argument("--source", default="manual", help="Origem do ack (emit, user, etc.)")
+    p.set_defaults(func=cmd_nudges_ack)
 
     return parser
 

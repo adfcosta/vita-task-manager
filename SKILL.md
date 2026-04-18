@@ -12,7 +12,7 @@ metadata:
 
 Sistema de tasks pessoais com **ledger JSONL append-only** como fonte de verdade, otimizado para TDAH.
 
-**Versão:** 2.10.0
+**Versão:** 2.11.2
 
 ## Regra de Ouro
 
@@ -307,6 +307,71 @@ Inspeciona o ledger e retorna JSON com alertas acionáveis:
 
 Retorna `has_alerts: true/false`, contagens por tipo em `counts`, e lista detalhada em `alerts`. Projetado para ser chamado pelo Plugin SDK do Janus sem gastar tokens de LLM (execução local via `execSync`). Ver `patches/vita-SESSION-DESIGN.md` para o design completo.
 
+### Heartbeat proativo (push)
+
+Enquanto `check-alerts` é passivo (leitura de estado), `heartbeat-tick` é o motor do push: roda a cada tick do heartbeat da Vita, filtra só alertas **críticos**, aplica cooldown e retorna texto pronto pra emitir via `sessions_send` pro canal do usuário (Janus/WhatsApp).
+
+```bash
+python3 scripts/cli.py heartbeat-tick \
+  --today DD/MM --year YYYY --data-dir data \
+  [--cooldown-hours 24]
+```
+
+**Thresholds (críticos apenas):**
+
+| Tipo | Condição crítica |
+|---|---|
+| `overdue` | `days_overdue >= 2` |
+| `stalled` | `hours_since_update >= 48` |
+| `blocked` | `postpone_count >= 3` |
+| `due_today` | nunca crítico (ruído pro push) |
+
+**Cooldown:** por `task_id + alert_type`, padrão 24h. Alerta reaparece só depois do cooldown expirar.
+
+**Retorno (JSON):**
+
+```json
+{
+  "ok": true,
+  "nudges_new": 1,
+  "suppressed_by_cooldown": 0,
+  "non_critical_skipped": 3,
+  "emit_text": "🌿 Vita alertou: \"Buscar remédio — atrasada há 3 dias\". Atacar hoje?",
+  "emit_target": "agent:main:whatsapp:direct:+558296607300"
+}
+```
+
+Se `emit_text` não for vazio **e** `emit_target` não for null, a Vita chama `sessions_send(emit_target, emit_text)`. Novos nudges já foram persistidos em `data/proactive-nudges.jsonl` antes do retorno (append-only), então mesmo se o envio falhar, o estado não vaza.
+
+**Config:** `data/heartbeat-config.json` (ver `examples/openclaw/heartbeat-config.json.example`):
+
+```json
+{
+  "emit_target": "agent:main:whatsapp:direct:+XXYYYYYYYYYY",
+  "severity_floor": "critical",
+  "cooldown_hours": 24
+}
+```
+
+Sem o arquivo: `emit_target=null` (não emite, só persiste), `severity_floor=critical`, `cooldown_hours=24`.
+
+**Store:** `data/proactive-nudges.jsonl` (append-only, gerenciado). Registros `type="nudge"` para alertas emitidos, `type="nudge_ack"` quando o usuário confirmou. `get_pending_nudges` ignora acks.
+
+### Nudges pendentes e ack
+
+```bash
+# listar nudges ainda não confirmados (backup se sessions_send falhar)
+python3 scripts/cli.py nudges-pending --data-dir data
+
+# marcar nudge como confirmado pelo usuário
+python3 scripts/cli.py nudges-ack \
+  --nudge-id nudge_20260418_1234 \
+  --source manual \
+  --data-dir data
+```
+
+Usar `nudges-pending` na próxima interação normal se o heartbeat não conseguir entregar (falha de `sessions_send`, janela inconveniente). Assim o nudge não se perde — reaparece no primeiro diálogo.
+
 ### Detecção de duplicatas
 
 O `ledger-add` detecta automaticamente tasks similares e retorna `warning.type == "duplicate_suspect"` quando encontra.
@@ -477,21 +542,24 @@ Crontab:
 
 ### Exemplo: OpenClaw cron
 
-Standing orders da Vita podem disparar os tick commands via cron do OpenClaw. Ver `patches/vita-AGENTS.md` para a tabela de governança que lista os comandos compostos.
+Standing orders da Vita disparam os tick commands via cron do OpenClaw. Ver `patches/vita-AGENTS.md` (bloco `Sistema de Tasks`) para o mapeamento `intenção → comando` e os programas formais.
 
 ### Standing Orders (OpenClaw)
 
-Os comandos `daily-tick` e `weekly-tick` foram desenhados para
-serem invocados por programas de standing orders da Vita no
-OpenClaw. Os programas formais (Morning Pipeline, Weekly Reflection,
-Duplicate Guardrail) estão documentados em
-`patches/vita-AGENTS.md` na seção "Programas (Standing Orders)",
-seguindo o padrão de https://docs.openclaw.ai/automation/standing-orders.
+Os comandos `daily-tick` e `weekly-tick` são disparados pelos três
+programas resumidos em `patches/vita-AGENTS.md` (seção Standing
+Orders):
 
-Quando o Faber aplicar o patch, a Vita ganha autoridade permanente
-para rodar esses programas dentro dos limites de Approval Gate e
-Escalation documentados. Nenhuma feature nova de código é
-necessária — os programas compõem comandos existentes.
+- **Morning Pipeline** — `daily-tick` às 06:00 Maceio
+- **Weekly Reflection** — `weekly-tick` domingo 20:00 Maceio
+  (recorrências exigem aprovação explícita)
+- **Duplicate Guardrail** — event-triggered, pausa `ledger-add` em
+  warning de duplicata
+
+Quando o patch é aplicado, a Vita ganha autoridade permanente para
+rodar esses programas dentro dos limites de Approval Gate e
+Escalation listados no próprio bloco. Nenhuma feature nova de
+código é necessária — os programas compõem comandos existentes.
 
 ### Otimização de sessão
 
@@ -520,4 +588,5 @@ em `patches/vita-SESSION-DESIGN.md`.
 | `scripts/execution_history.py` | Relatório de padrões de execução + word weights |
 | `scripts/recurrence.py` | Detecção de padrões e regras de recorrência |
 | `scripts/rollover.py` | Transição semanal de ledger |
+| `scripts/heartbeat.py` | Motor de nudges proativos (cooldown, emit_text, store) |
 | `scripts/test_core.py` | Suíte de testes |

@@ -5,6 +5,78 @@ Todas as mudanças notáveis desta skill serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [2.11.2] - 2026-04-18
+
+### Adicionado
+- **Heartbeat proativo com nudges ao usuário:** A Vita agora detecta
+  alertas críticos a cada tick do heartbeat (55min) e emite nudges
+  proativos via WhatsApp do Janus (`sessions_send` para
+  `agent:main:whatsapp:direct:<peer>`). Não depende mais do usuário
+  iniciar conversa pra surfacing.
+  - Novo `scripts/heartbeat.py` com lógica de cooldown e persistência
+  - Novos subcomandos CLI:
+    - `heartbeat-tick` — detecta + filtra crítico + cooldown +
+      persiste + retorna `emit_text` / `emit_target` pra Vita emitir
+    - `nudges-pending` — lista nudges não-acked
+    - `nudges-ack` — marca nudge como entregue
+  - Store `data/proactive-nudges.jsonl` (JSONL append-only, padrão
+    da skill)
+  - Config `data/heartbeat-config.json` com `emit_target`,
+    `severity_floor`, `cooldown_hours`
+  - Thresholds críticos padrão: `overdue ≥ 2 dias`,
+    `stalled ≥ 48h`, `blocked ≥ 3 postpones`
+  - Cooldown padrão: 24h por `task_id + alert_type`
+  - 5 testes novos em `test_core.py` (total: 75 testes passando)
+- **`examples/openclaw/vita-HEARTBEAT.md`:** template minimalista
+  (cache-friendly) pra substituir o HEARTBEAT.md vivo
+- **`examples/openclaw/heartbeat-config.json.example`:** template
+  de config
+
+### Mudado
+- **Patches bump para v2.11.2:**
+  - `patches/janus-AGENTS.md`: adicionado parágrafo "Nudges proativos
+    da Vita" com handling do prefixo `[VITA:NUDGE]`. Nota no
+    preâmbulo esclarece que `agentId = main` (display "Janus").
+  - `patches/vita-AGENTS.md`: adicionada seção "Heartbeat proativo"
+    com fluxo `heartbeat-tick` → `sessions_send`. Tabela
+    "intenção → comando" ganhou linha de nudges.
+
+### Notas
+- Fallback quando `sessions_send` não disponível: nudges já estão no
+  disco, próxima interação natural com a Vita surfaces via
+  `cli nudges-pending`.
+- Se quiser desligar completamente os nudges, basta não configurar
+  `emit_target` no `heartbeat-config.json` — emit_text continua
+  sendo gerado (útil pra debug) mas não há target pra emitir.
+
+## [2.11.1] - 2026-04-18
+
+### Mudado
+- **`patches/vita-AGENTS.md`:** reescrito como delta patch enxuto (~113
+  linhas total, bloco BEGIN/END de ~75 linhas). Versão anterior era
+  um AGENTS.md completo com seções duplicadas do arquivo vivo
+  (Session Start, Scope, Safety, Memory, Operating Rules, Governança,
+  etc.). Novo formato contém apenas o que é específico da skill:
+  regra de ouro, paths, tabela "intenção → comando", Duplicate
+  Guardrail, 3 Standing Orders em bullets, Execute-Verify-Report,
+  não-autorizado.
+- **`patches/janus-AGENTS.md`:** bloco BEGIN/END condensado
+  (~95 → ~25 linhas). Mantém: árvore de decisão (3 caminhos),
+  tabela de fallback de `vita_quick_crud`, proibidos. Corta:
+  explicações extensas e tabela redundante de tools.
+- Ambos patches mantêm marcador `<!-- BEGIN vita-task-manager
+  v2.11.1 -->` — aplicação via substituição entre os marcadores
+  continua compatível com AGENTS vivos instalados em v2.11.0.
+
+### Notas
+- Princípio: AGENTS.md do agente vivo carrega personalidade/contexto
+  (SOUL, Operating Rules, Safety, Memory). Patch da skill carrega só
+  instruções operacionais da skill. Nada duplicado.
+- Detalhes expandidos de comandos, flags e exemplos vivem em
+  `SKILL.md` — o patch referencia mas não duplica.
+- Crons de Morning Pipeline e Weekly Reflection permanecem
+  funcionando inalterados (ver `examples/openclaw/cron-*.sh`).
+
 ## [2.10.1] - 2026-04-14
 
 ### Corrigido

@@ -1,0 +1,6 @@
+{
+  "_comment": "Config do heartbeat-tick. Copiar para data/heartbeat-config.json e ajustar emit_target. Valores omitidos caem pro default (severity_floor=critical, cooldown_hours=24).",
+  "emit_target": "agent:main:whatsapp:direct:+XXYYYYYYYYYY",
+  "severity_floor": "critical",
+  "cooldown_hours": 24
+}

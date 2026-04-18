@@ -1,4 +1,8 @@
-# Patch — Janus AGENTS.md (domínio Vita)
+# Patch — main AGENTS.md (domínio Vita)
+
+> Nota: o agente com display "Janus" tem `agentId = main` no OpenClaw.
+> Workspace vivo: `~/.openclaw/workspace/janus/AGENTS.md`.
+> Session keys: `agent:main:*`.
 
 Este patch instrui o **Janus** sobre como operar o domínio de tasks pessoais
 (Vita) usando os tools do plugin `vita-router` e a sessão permanente da Vita.
@@ -14,7 +18,9 @@ Arquivo vivo: `~/.openclaw/workspace/janus/AGENTS.md`
 1. **Remover** a subseção `### Sessão persistente da Vita` dentro de
    `## Protocolo de Delegação` — ela descreve o modelo antigo (cron
    diário com sessão isolada + fallback via `sessions_spawn`), que foi
-   substituído em v2.11.0 por main session permanente + heartbeat nativo.
+   substituído em v2.11.0/v2.11.1 por main session permanente + heartbeat
+   nativo (delegação via `sessions_send`) e cron nativo em turno isolado
+   (ticks periódicos).
 2. **Inserir** o bloco delimitado por `<!-- BEGIN ... -->` / `<!-- END ... -->`
    deste arquivo **logo depois** de `## Protocolo de Delegação`, antes da
    próxima seção (`## DEVE FAZER` ou equivalente).
@@ -28,95 +34,44 @@ Substituir tudo entre os marcadores `<!-- BEGIN vita-task-manager ... -->` e
 
 ---
 
-<!-- BEGIN vita-task-manager v2.11.0 -->
+<!-- BEGIN vita-task-manager v2.11.2 -->
 ## Sistema de Tasks (via vita-router plugin)
 
-O domínio "vida pessoal / tasks / rotina" pertence à **Vita**. Janus não
-executa operações de task — ou chama o plugin `vita-router` (tools locais
-sem LLM) ou delega pra sessão da Vita (`sessions_send`).
+Domínio de tasks pessoais pertence à Vita. Janus não executa — usa plugin `vita-router` ou delega.
 
-`sessions_spawn` para Vita está **proibido** — existe main session
-permanente em `agent:vita:main` mantida viva por heartbeat nativo (55m,
-06-23h Maceio, idle reset 48h). Spawnar sessão nova descarta contexto e
-quebra continuidade.
+**`sessions_spawn` para Vita: proibido.** Main session permanente em `agent:vita:main` (heartbeat 55m, 06-23h Maceio, idle 48h).
 
-### Árvore de decisão (fast path → fallback)
+### Decisão
 
-Para cada mensagem do usuário que toca o domínio de tasks:
+1. CRUD claro ("terminei X", "adiciona Y", "cancela Z") → `vita_quick_crud({message})`
+2. Status/pendências ("tem algo vencendo?") → `vita_check_alerts({})`
+3. Planejamento, análise, priorização, brain dump, 1-3-5 → `sessions_send("agent:vita:main", message)`
 
-1. **É CRUD simples e direto?** (ex: "terminei relatório", "adiciona task
-   X pra amanhã", "cancela a reunião de 16h")
-   → chamar `vita_quick_crud(message)` **primeiro**.
-2. **É alerta/status rápido?** (ex: "tem algo pendente?", "o que tá
-   vencendo?")
-   → chamar `vita_check_alerts()`.
-3. **É planejamento, análise, conversa, ajuste de prioridade, brain
-   dump, sugestão 1-3-5, ou qualquer coisa que exige julgamento da
-   Vita?**
-   → `sessions_send` para `agent:vita:main` com a mensagem original.
+### Fallback de `vita_quick_crud`
 
-Se `vita_quick_crud` retornar `handled: false`, tratar pelo campo
-`reason`:
+- `handled: true` → devolver `reply` direto ao usuário
+- `handled: false, reason: intent_complex` → `sessions_send` com mensagem original
+- `handled: false, reason: duplicate_warning` → `sessions_send` com warning junto (Vita resolve)
+- `handled: false, reason: cli_error` → `sessions_send` com mensagem + nota do erro
 
-| `reason`              | Ação do Janus                                                                 |
-|-----------------------|-------------------------------------------------------------------------------|
-| `intent_complex`      | `sessions_send` para `agent:vita:main` com a mensagem original                |
-| `duplicate_warning`   | `sessions_send` para `agent:vita:main` passando o payload de `warning` junto — Duplicate Guardrail é responsabilidade da Vita, não do Janus |
-| `cli_error`           | `sessions_send` para `agent:vita:main` com a mensagem original + nota do erro para Vita diagnosticar |
+### Proativo
 
-Se `vita_quick_crud` retornar `handled: true`, **devolver `reply` direto
-ao usuário** — não reenviar pra Vita (duplicaria trabalho e poluiria
-contexto da main session).
+Janela apropriada (ocioso, transição, pedido de status) → `vita_check_alerts()` direto (barato). Julgamento além de ler alertas → `sessions_send`.
 
-### Tools disponíveis
+### Nudges proativos da Vita
 
-| Tool                | Input                  | Quando usar                                                                 |
-|---------------------|------------------------|-----------------------------------------------------------------------------|
-| `vita_quick_crud`   | `{ message: string }`  | Mensagem do usuário parece CRUD claro (complete/add/cancel/start de task)   |
-| `vita_check_alerts` | `{}`                   | Checagem proativa de pendências, vencimentos, tasks stalled/blocked         |
+Mensagens entrantes com prefixo `[VITA:NUDGE]` são alertas proativos emitidos pelo heartbeat da Vita, **não fala do usuário**. Tratamento:
 
-Ambos executam CLI local sem gasto de tokens de LLM. O plugin já faz
-classificação de intenção interna — se a confiança for baixa, ele mesmo
-devolve `handled: false, reason: "intent_complex"`.
+1. Não responder perguntando de volta — reformular como aviso ao usuário.
+2. Não ecoar o prefixo.
+3. Ex: entrada `[VITA:NUDGE] Buscar remédio atrasado há 3 dias` → resposta `"🌿 Vita alertou: buscar remédio tá atrasado há 3 dias. Atacar hoje?"`.
+4. Se chegar em janela inconveniente (madrugada, reunião conhecida), pode agrupar ou adiar — usar julgamento.
 
-### Sessão persistente da Vita (substitui modelo antigo)
+### Proibido
 
-A Vita tem **uma única sessão principal** em `agent:vita:main` que:
-
-- Vive indefinidamente (reset por `idle` com janela de 48h, não por dia).
-- É aquecida a cada 55 min das 06h às 23h (Maceio) via heartbeat nativo
-  do Gateway — garante cache_read em vez de cache_write.
-- Recebe eventos do Morning Pipeline (06:00) e Weekly Reflection
-  (domingo 20:00) via `openclaw cron` com `--session main
-  --system-event`, não por sessão isolada.
-
-Quando Janus precisa da Vita:
-
-```
-sessions_send(session: "agent:vita:main", message: "<texto do usuário>")
-```
-
-**Não usar** `sessions_spawn` para Vita em hipótese alguma — nem como
-fallback. Se a main session estiver indisponível (bug do Gateway), parar
-e reportar ao usuário em vez de criar sessão isolada que vai morrer sem
-contexto.
-
-### Proactive Behavior — integração com check-alerts
-
-Quando Janus detectar janela proativa apropriada (usuário ocioso,
-transição de contexto, pedido explícito de status), pode chamar
-`vita_check_alerts()` direto — é barato e não queima tokens. Se o
-resultado tiver alertas relevantes (due_today com postpone_count alto,
-overdue crítico), apresentar ao usuário. Se o julgamento exigir mais
-que leitura de alertas (priorização, reorganização), delegar à Vita via
-`sessions_send`.
-
-### Rotas obsoletas (não usar)
-
-- ❌ `sessions_spawn` com payload de task → quebra continuidade da Vita
-- ❌ Edição direta de ledger/output da skill → viola governança da Vita
-- ❌ `exec` de `cli.py` direto no Janus → use o plugin, que já tem o
-  contrato certo e trata erros
+- `sessions_spawn` pra Vita (nem como fallback — se main cair, reportar ao usuário)
+- Editar ledger/output da skill direto
+- `exec` de `cli.py` no Janus (usa o plugin)
 
 <!-- END vita-task-manager -->
 
@@ -126,7 +81,7 @@ que leitura de alertas (priorização, reorganização), delegar à Vita via
 
 - [ ] Subseção antiga `### Sessão persistente da Vita` removida do
       `## Protocolo de Delegação` do Janus
-- [ ] Marcadores `<!-- BEGIN vita-task-manager v2.11.0 -->` e
+- [ ] Marcadores `<!-- BEGIN vita-task-manager v2.11.2 -->` e
       `<!-- END vita-task-manager -->` presentes no AGENTS vivo
 - [ ] `openclaw plugin list` mostra `vita-router` ativo
 - [ ] Rotina de sanity: mandar "terminei X" pro Janus via WhatsApp e
