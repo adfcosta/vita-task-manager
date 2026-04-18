@@ -2,7 +2,7 @@
 
 Sistema de gerenciamento de tarefas pessoais com **ledger JSONL** como fonte de verdade, otimizado para TDAH.
 
-**Versão:** 2.10.0  
+**Versão:** 2.11.2  
 **Localização:** `/home/node/.openclaw/workspace/vita/skills/vita-task-manager/`
 
 ---
@@ -139,6 +139,14 @@ O sistema gera dois formatos de saída:
 | Comando | Descrição |
 |---------|-----------|
 | `check-alerts` | Inspeciona ledger e retorna alertas acionáveis (due_today, overdue, stalled, blocked) |
+
+### Heartbeat proativo (push)
+
+| Comando | Descrição |
+|---------|-----------|
+| `heartbeat-tick` | Filtra alertas críticos, aplica cooldown, persiste nudges e retorna `emit_text` pronto pra `sessions_send` |
+| `nudges-pending` | Lista nudges ainda não confirmados (fallback quando `sessions_send` falhar) |
+| `nudges-ack` | Marca nudge como confirmado pelo usuário |
 
 ### Automação
 
@@ -322,7 +330,7 @@ cli dump-to-task --dump-id ... --item "Trocar lâmpada" --next-action "Ir na loj
 
 O item convertido some automaticamente do brain dump.
 
-### Features Implementadas (v2.2 - v2.5)
+### Features Implementadas (v2.2 - v2.11)
 
 - ✅ **Scoring automático:** Algoritmo 1-3-5 sugere quais tarefas fazer
 - ✅ **Complexidade inferida:** IA avalia dificuldade (1-10)
@@ -332,6 +340,7 @@ O item convertido some automaticamente do brain dump.
 - ✅ **Histórico de execução:** Relatório semanal de padrões + word weights
 - ✅ **Rollover resiliente:** Migração de tasks em qualquer dia da semana
 - ✅ **Diagnóstico:** `ledger-status` para troubleshooting
+- ✅ **Heartbeat proativo (v2.11.2):** Nudges críticos via WhatsApp sem depender de pergunta do usuário
 
 ### Próximas Features (v3.0+)
 
@@ -377,6 +386,7 @@ vita-task-manager/
 │   ├── feedback_logic.py # Lógica de feedback
 │   ├── execution_history.py # Padrões de execução + word weights
 │   ├── rollover.py      # Transição semanal
+│   ├── heartbeat.py     # Motor de nudges proativos (cooldown, emit_text)
 │   └── test_core.py     # Testes automatizados
 ├── input/               # Arquivos pessoais do usuário (gitignore)
 ├── data/

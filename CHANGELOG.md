@@ -26,7 +26,7 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
   - Thresholds críticos padrão: `overdue ≥ 2 dias`,
     `stalled ≥ 48h`, `blocked ≥ 3 postpones`
   - Cooldown padrão: 24h por `task_id + alert_type`
-  - 5 testes novos em `test_core.py` (total: 74 testes passando)
+  - 5 testes novos em `test_core.py` (total: 75 testes passando)
 - **`examples/openclaw/vita-HEARTBEAT.md`:** template minimalista
   (cache-friendly) pra substituir o HEARTBEAT.md vivo
 - **`examples/openclaw/heartbeat-config.json.example`:** template
