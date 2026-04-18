@@ -12,7 +12,7 @@ metadata:
 
 Sistema de tasks pessoais com **ledger JSONL append-only** como fonte de verdade, otimizado para TDAH.
 
-**Versão:** 2.11.2
+**Versão:** 2.11.3
 
 ## Regra de Ouro
 

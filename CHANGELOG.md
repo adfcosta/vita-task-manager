@@ -5,6 +5,29 @@ Todas as mudanças notáveis desta skill serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [2.11.3] - 2026-04-18
+
+### Mudado
+- **`patches/vita-AGENTS.md`:** adicionada seção **Feedback do dia**
+  instruindo a Vita a reagir aos campos `feedback_status` e
+  `feedback_seed` retornados por todo comando CRUD (`ledger-add` /
+  `ledger-update` / `ledger-start` / `ledger-progress` /
+  `ledger-complete` / `ledger-cancel`) e pelo `daily-tick`. Inclui
+  tabela `required` / `offer` / `skip` → ação, e lembrete de
+  re-renderizar após `store-feedback` pra o bloco `💬 Da Vita`
+  aparecer no `diarias.txt`.
+- Linha `Feedback do dia | store-feedback` adicionada à tabela
+  "Operações → comando" do patch.
+- Bump dos marcadores para `v2.11.3` em `patches/vita-AGENTS.md`.
+
+### Contexto
+- O código Python já emitia `feedback_status` + `feedback_seed` desde
+  versões anteriores (ver `scripts/feedback_logic.py` e `SKILL.md`
+  seção Feedback). A lacuna era **documental**: o AGENTS patch não
+  instruía a Vita a consumir esses campos, então ela só gerava
+  feedback quando o usuário pedia explicitamente. Sem mudança de
+  código — só do patch AGENTS.
+
 ## [2.11.2] - 2026-04-18
 
 ### Adicionado
