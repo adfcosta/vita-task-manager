@@ -98,7 +98,7 @@ with open("vita/AGENTS.md", "w") as f:
 
 ## Versionamento
 
-A versão no marcador BEGIN (`v2.4.0`) deve sempre casar com a versão da skill.
+A versão no marcador BEGIN (`v2.11.2`) deve sempre casar com a versão da skill.
 Se divergir, é sinal de update pendente — o Faber pode detectar isso comparando
 o marcador do AGENTS vivo com a versão atual da skill.
 

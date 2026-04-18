@@ -336,7 +336,7 @@ python3 scripts/cli.py heartbeat-tick \
   "nudges_new": 1,
   "suppressed_by_cooldown": 0,
   "non_critical_skipped": 3,
-  "emit_text": "🌿 Vita alertou: \"Buscar remédio\" tá atrasado há 3 dias. Atacar hoje?",
+  "emit_text": "🌿 Vita alertou: \"Buscar remédio — atrasada há 3 dias\". Atacar hoje?",
   "emit_target": "agent:main:whatsapp:direct:+558296607300"
 }
 ```
@@ -588,4 +588,5 @@ em `patches/vita-SESSION-DESIGN.md`.
 | `scripts/execution_history.py` | Relatório de padrões de execução + word weights |
 | `scripts/recurrence.py` | Detecção de padrões e regras de recorrência |
 | `scripts/rollover.py` | Transição semanal de ledger |
+| `scripts/heartbeat.py` | Motor de nudges proativos (cooldown, emit_text, store) |
 | `scripts/test_core.py` | Suíte de testes |
