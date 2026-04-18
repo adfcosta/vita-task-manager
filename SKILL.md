@@ -12,7 +12,7 @@ metadata:
 
 Sistema de tasks pessoais com **ledger JSONL append-only** como fonte de verdade, otimizado para TDAH.
 
-**Versão:** 2.10.0
+**Versão:** 2.11.2
 
 ## Regra de Ouro
 
@@ -306,6 +306,71 @@ Inspeciona o ledger e retorna JSON com alertas acionáveis:
 | `blocked` | Task com `postpone_count >= 3` |
 
 Retorna `has_alerts: true/false`, contagens por tipo em `counts`, e lista detalhada em `alerts`. Projetado para ser chamado pelo Plugin SDK do Janus sem gastar tokens de LLM (execução local via `execSync`). Ver `patches/vita-SESSION-DESIGN.md` para o design completo.
+
+### Heartbeat proativo (push)
+
+Enquanto `check-alerts` é passivo (leitura de estado), `heartbeat-tick` é o motor do push: roda a cada tick do heartbeat da Vita, filtra só alertas **críticos**, aplica cooldown e retorna texto pronto pra emitir via `sessions_send` pro canal do usuário (Janus/WhatsApp).
+
+```bash
+python3 scripts/cli.py heartbeat-tick \
+  --today DD/MM --year YYYY --data-dir data \
+  [--cooldown-hours 24]
+```
+
+**Thresholds (críticos apenas):**
+
+| Tipo | Condição crítica |
+|---|---|
+| `overdue` | `days_overdue >= 2` |
+| `stalled` | `hours_since_update >= 48` |
+| `blocked` | `postpone_count >= 3` |
+| `due_today` | nunca crítico (ruído pro push) |
+
+**Cooldown:** por `task_id + alert_type`, padrão 24h. Alerta reaparece só depois do cooldown expirar.
+
+**Retorno (JSON):**
+
+```json
+{
+  "ok": true,
+  "nudges_new": 1,
+  "suppressed_by_cooldown": 0,
+  "non_critical_skipped": 3,
+  "emit_text": "🌿 Vita alertou: \"Buscar remédio\" tá atrasado há 3 dias. Atacar hoje?",
+  "emit_target": "agent:main:whatsapp:direct:+558296607300"
+}
+```
+
+Se `emit_text` não for vazio **e** `emit_target` não for null, a Vita chama `sessions_send(emit_target, emit_text)`. Novos nudges já foram persistidos em `data/proactive-nudges.jsonl` antes do retorno (append-only), então mesmo se o envio falhar, o estado não vaza.
+
+**Config:** `data/heartbeat-config.json` (ver `examples/openclaw/heartbeat-config.json.example`):
+
+```json
+{
+  "emit_target": "agent:main:whatsapp:direct:+XXYYYYYYYYYY",
+  "severity_floor": "critical",
+  "cooldown_hours": 24
+}
+```
+
+Sem o arquivo: `emit_target=null` (não emite, só persiste), `severity_floor=critical`, `cooldown_hours=24`.
+
+**Store:** `data/proactive-nudges.jsonl` (append-only, gerenciado). Registros `type="nudge"` para alertas emitidos, `type="nudge_ack"` quando o usuário confirmou. `get_pending_nudges` ignora acks.
+
+### Nudges pendentes e ack
+
+```bash
+# listar nudges ainda não confirmados (backup se sessions_send falhar)
+python3 scripts/cli.py nudges-pending --data-dir data
+
+# marcar nudge como confirmado pelo usuário
+python3 scripts/cli.py nudges-ack \
+  --nudge-id nudge_20260418_1234 \
+  --source manual \
+  --data-dir data
+```
+
+Usar `nudges-pending` na próxima interação normal se o heartbeat não conseguir entregar (falha de `sessions_send`, janela inconveniente). Assim o nudge não se perde — reaparece no primeiro diálogo.
 
 ### Detecção de duplicatas
 

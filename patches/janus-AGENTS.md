@@ -1,4 +1,8 @@
-# Patch — Janus AGENTS.md (domínio Vita)
+# Patch — main AGENTS.md (domínio Vita)
+
+> Nota: o agente com display "Janus" tem `agentId = main` no OpenClaw.
+> Workspace vivo: `~/.openclaw/workspace/janus/AGENTS.md`.
+> Session keys: `agent:main:*`.
 
 Este patch instrui o **Janus** sobre como operar o domínio de tasks pessoais
 (Vita) usando os tools do plugin `vita-router` e a sessão permanente da Vita.
@@ -30,7 +34,7 @@ Substituir tudo entre os marcadores `<!-- BEGIN vita-task-manager ... -->` e
 
 ---
 
-<!-- BEGIN vita-task-manager v2.11.1 -->
+<!-- BEGIN vita-task-manager v2.11.2 -->
 ## Sistema de Tasks (via vita-router plugin)
 
 Domínio de tasks pessoais pertence à Vita. Janus não executa — usa plugin `vita-router` ou delega.
@@ -54,6 +58,15 @@ Domínio de tasks pessoais pertence à Vita. Janus não executa — usa plugin `
 
 Janela apropriada (ocioso, transição, pedido de status) → `vita_check_alerts()` direto (barato). Julgamento além de ler alertas → `sessions_send`.
 
+### Nudges proativos da Vita
+
+Mensagens entrantes com prefixo `[VITA:NUDGE]` são alertas proativos emitidos pelo heartbeat da Vita, **não fala do usuário**. Tratamento:
+
+1. Não responder perguntando de volta — reformular como aviso ao usuário.
+2. Não ecoar o prefixo.
+3. Ex: entrada `[VITA:NUDGE] Buscar remédio atrasado há 3 dias` → resposta `"🌿 Vita alertou: buscar remédio tá atrasado há 3 dias. Atacar hoje?"`.
+4. Se chegar em janela inconveniente (madrugada, reunião conhecida), pode agrupar ou adiar — usar julgamento.
+
 ### Proibido
 
 - `sessions_spawn` pra Vita (nem como fallback — se main cair, reportar ao usuário)
@@ -68,7 +81,7 @@ Janela apropriada (ocioso, transição, pedido de status) → `vita_check_alerts
 
 - [ ] Subseção antiga `### Sessão persistente da Vita` removida do
       `## Protocolo de Delegação` do Janus
-- [ ] Marcadores `<!-- BEGIN vita-task-manager v2.11.1 -->` e
+- [ ] Marcadores `<!-- BEGIN vita-task-manager v2.11.2 -->` e
       `<!-- END vita-task-manager -->` presentes no AGENTS vivo
 - [ ] `openclaw plugin list` mostra `vita-router` ativo
 - [ ] Rotina de sanity: mandar "terminei X" pro Janus via WhatsApp e

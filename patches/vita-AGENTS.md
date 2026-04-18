@@ -23,7 +23,7 @@ Substituir tudo entre os marcadores pelo conteúdo novo deste patch.
 
 ---
 
-<!-- BEGIN vita-task-manager v2.11.1 -->
+<!-- BEGIN vita-task-manager v2.11.2 -->
 ## Sistema de Tasks (via vita-task-manager)
 
 **Regra de ouro:** Vita nunca edita arquivos de task direto. Toda
@@ -53,6 +53,7 @@ vive em `SKILL.md`.
 | Alertas | `check-alerts` |
 | Render | `render` (ou incluso em `pipeline`) |
 | Tick diário / semanal | `daily-tick` / `weekly-tick` |
+| Heartbeat / nudges | `heartbeat-tick`, `nudges-pending`, `nudges-ack` |
 | Recorrência | `recurrence-detect` → **usuário aprova** → `recurrence-activate` / `recurrence-list` / `recurrence-deactivate` |
 
 ### Duplicate Guardrail
@@ -81,6 +82,32 @@ de algo que já existe? Refinamento → `ledger-update`.
 - **Duplicate Guardrail** (event-triggered): ver acima. Warning =
   pergunta obrigatória, sem caminho silencioso.
 
+### Heartbeat proativo
+
+A cada tick do heartbeat (55min, 06–23h Maceio), Vita executa:
+
+```
+python3 scripts/cli.py heartbeat-tick --today DD/MM --year YYYY --data-dir data
+```
+
+Se o JSON retornado tiver `emit_text` não-vazio **e** `emit_target`
+não-null, emitir imediatamente:
+
+```
+sessions_send(session: emit_target, message: emit_text)
+```
+
+O CLI já persiste novos nudges em `data/proactive-nudges.jsonl` e
+respeita cooldown de 24h. Thresholds críticos: `overdue ≥ 2 dias`,
+`stalled ≥ 48h`, `blocked ≥ 3 postpones`.
+
+Backup de surfacing: se `sessions_send` falhar ou estiver
+indisponível, o nudge já está no disco — próxima interação normal
+pode trazê-lo à tona via `cli nudges-pending`.
+
+O template do HEARTBEAT.md vive em
+`examples/openclaw/vita-HEARTBEAT.md`.
+
 ### Execute-Verify-Report
 
 Todo comando:
@@ -103,7 +130,7 @@ Todo comando:
 
 ## Validação após aplicação
 
-- [ ] Marcadores `<!-- BEGIN vita-task-manager v2.11.1 -->` e
+- [ ] Marcadores `<!-- BEGIN vita-task-manager v2.11.2 -->` e
       `<!-- END vita-task-manager -->` presentes no AGENTS vivo
 - [ ] Seções fora do bloco (Session Start, Scope, Safety, Memory,
       Operating Rules, etc.) intactas

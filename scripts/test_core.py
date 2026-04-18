@@ -2206,6 +2206,140 @@ def test_check_alerts_cli():
         print("✓ test_check_alerts_cli")
 
 
+def test_heartbeat_tick_no_alerts():
+    """heartbeat-tick com ledger vazio: nudges_new=0, emit_text vazio."""
+    from heartbeat import build_heartbeat_nudges
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        result = build_heartbeat_nudges(data_dir=data_dir, alerts=[])
+        assert result["nudges_new"] == 0
+        assert result["suppressed_by_cooldown"] == 0
+        assert result["emit_text"] == ""
+        assert result["nudges_records"] == []
+        print("✓ test_heartbeat_tick_no_alerts")
+
+
+def test_heartbeat_tick_critical_overdue():
+    """heartbeat-tick detecta task overdue 3 dias, gera nudge e emit_text."""
+    from ledger import get_ledger_filename
+    from heartbeat import build_heartbeat_nudges
+    from cli import _build_alerts
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        record = _create_test_ledger_record("t1", "Task atrasada", "[ ]",
+                                             created_at="2026-04-10T09:00:00")
+        record["due_date"] = "10/04"  # 3 dias atrás
+        _write_jsonl(ledger_file, [record])
+
+        alerts_res = _build_alerts(data_dir, today, 2026)
+        result = build_heartbeat_nudges(data_dir=data_dir, alerts=alerts_res["alerts"])
+
+        assert result["nudges_new"] == 1
+        assert result["suppressed_by_cooldown"] == 0
+        assert "Task atrasada" in result["emit_text"]
+        assert "3 dias" in result["emit_text"]
+        assert result["nudges_records"][0]["task_id"] == "t1"
+        assert result["nudges_records"][0]["alert_type"] == "overdue"
+        # Persistência
+        nudges_path = data_dir / "proactive-nudges.jsonl"
+        assert nudges_path.exists()
+        records = load_ledger(nudges_path)
+        assert len([r for r in records if r.get("type") == "nudge"]) == 1
+        print("✓ test_heartbeat_tick_critical_overdue")
+
+
+def test_heartbeat_cooldown_suppresses():
+    """Segunda run dentro de 24h suprime o nudge."""
+    from ledger import get_ledger_filename
+    from heartbeat import build_heartbeat_nudges
+    from cli import _build_alerts
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        record = _create_test_ledger_record("t1", "Task atrasada", "[ ]",
+                                             created_at="2026-04-10T09:00:00")
+        record["due_date"] = "10/04"
+        _write_jsonl(ledger_file, [record])
+
+        alerts_res = _build_alerts(data_dir, today, 2026)
+
+        # Run 1
+        result1 = build_heartbeat_nudges(data_dir=data_dir, alerts=alerts_res["alerts"])
+        assert result1["nudges_new"] == 1
+
+        # Run 2 imediata
+        result2 = build_heartbeat_nudges(data_dir=data_dir, alerts=alerts_res["alerts"])
+        assert result2["nudges_new"] == 0
+        assert result2["suppressed_by_cooldown"] == 1
+        assert result2["emit_text"] == ""
+        print("✓ test_heartbeat_cooldown_suppresses")
+
+
+def test_heartbeat_non_critical_ignored():
+    """Task overdue 1 dia (< threshold de 2) não gera nudge."""
+    from ledger import get_ledger_filename
+    from heartbeat import build_heartbeat_nudges
+    from cli import _build_alerts
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        record = _create_test_ledger_record("t1", "Task pouco atrasada", "[ ]",
+                                             created_at="2026-04-12T09:00:00")
+        record["due_date"] = "12/04"  # só 1 dia atrás
+        _write_jsonl(ledger_file, [record])
+
+        alerts_res = _build_alerts(data_dir, today, 2026)
+        # Sanity: tem alerta overdue, mas não crítico
+        overdue_alerts = [a for a in alerts_res["alerts"] if a["type"] == "overdue"]
+        assert len(overdue_alerts) == 1
+        assert overdue_alerts[0]["days_overdue"] == 1
+
+        result = build_heartbeat_nudges(data_dir=data_dir, alerts=alerts_res["alerts"])
+        assert result["nudges_new"] == 0
+        assert result["non_critical_skipped"] >= 1
+        assert result["emit_text"] == ""
+        print("✓ test_heartbeat_non_critical_ignored")
+
+
+def test_nudges_pending_and_ack():
+    """get_pending_nudges retorna não-acked; ack_nudge remove da pending."""
+    from ledger import get_ledger_filename
+    from heartbeat import build_heartbeat_nudges, get_pending_nudges, ack_nudge
+    from cli import _build_alerts
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        record = _create_test_ledger_record("t1", "Task atrasada", "[ ]",
+                                             created_at="2026-04-10T09:00:00")
+        record["due_date"] = "10/04"
+        _write_jsonl(ledger_file, [record])
+
+        alerts_res = _build_alerts(data_dir, today, 2026)
+        result = build_heartbeat_nudges(data_dir=data_dir, alerts=alerts_res["alerts"])
+        assert result["nudges_new"] == 1
+        nudge_id = result["nudges_records"][0]["id"]
+
+        pending_before = get_pending_nudges(data_dir)
+        assert len(pending_before) == 1
+        assert pending_before[0]["id"] == nudge_id
+
+        ack_nudge(data_dir, nudge_id, source="test")
+
+        pending_after = get_pending_nudges(data_dir)
+        assert len(pending_after) == 0
+        print("✓ test_nudges_pending_and_ack")
+
+
 def run_all_tests():
     """Executa todos os testes."""
     print('\n=== Testes vita-task-manager ===\n')
@@ -2278,6 +2412,11 @@ def run_all_tests():
     test_check_alerts_blocked()
     test_check_alerts_multiple()
     test_check_alerts_cli()
+    test_heartbeat_tick_no_alerts()
+    test_heartbeat_tick_critical_overdue()
+    test_heartbeat_cooldown_suppresses()
+    test_heartbeat_non_critical_ignored()
+    test_nudges_pending_and_ack()
     print('\n✓ Todos os testes passaram!\n')
 
 
