@@ -3,7 +3,7 @@
 Esta pasta contém **deltas** que a skill `vita-task-manager` enxerta nos arquivos
 do agente Vita no Domus. São blocos de conteúdo, não arquivos completos.
 
-**Versão atual dos patches:** v2.6.0
+**Versão atual dos patches:** v2.11.0
 
 ## Filosofia: delta, não substituição
 
@@ -22,6 +22,8 @@ Essa separação garante que:
 | Arquivo | Destino no Domus | Conteúdo |
 |---------|------------------|----------|
 | `vita-AGENTS.md` | `vita/AGENTS.md` | Bloco `## Sistema de Tasks (via vita-task-manager)` com governança, paths, fluxo e scoring |
+| `janus-AGENTS.md` | `janus/AGENTS.md` | Bloco `## Sistema de Tasks (via vita-router plugin)` — decision tree para Janus, tools do plugin, substitui modelo antigo de `sessions_spawn` |
+| `vita-SESSION-DESIGN.md` | (referência, não aplicado) | Design do modelo de sessão: session.reset idle, heartbeat per-agent, cron interno, pruning e memory flush |
 
 **Só AGENTS.** Não há patch de SOUL nem de IDENTITY porque:
 
@@ -34,10 +36,15 @@ Essa separação garante que:
 Cada patch usa marcadores HTML para delimitar o bloco a enxertar:
 
 ```
-<!-- BEGIN vita-task-manager v2.5.0 -->
+<!-- BEGIN vita-task-manager v2.11.0 -->
 ...conteúdo do bloco...
 <!-- END vita-task-manager -->
 ```
+
+Cada arquivo de patch traz no topo suas próprias instruções de onde
+inserir no arquivo vivo e, se for update, o que remover antes (caso
+substitua subseções antigas). Os passos abaixo descrevem o fluxo
+genérico — use-os em conjunto com o preâmbulo de cada patch.
 
 ### Primeira instalação
 

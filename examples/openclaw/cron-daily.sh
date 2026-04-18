@@ -1,15 +1,29 @@
 #!/usr/bin/env bash
 # ------------------------------------------------------------------
-# Vita Morning — Cron diário às 06:00 (Fase 1)
+# Vita Morning — Cron interno do OpenClaw, diário às 06:00
 #
-# Roda daily-tick na sessão nomeada "vita-daily". A sessão
-# persiste entre runs, permitindo que o Janus comunique via
-# sessions_send ao longo do dia sem bootstrap repetido.
+# Execute ESTE COMANDO uma única vez (dentro do container openclaw-gateway
+# ou na máquina onde o gateway roda) para registrar o job no scheduler
+# nativo. O job persiste em ~/.openclaw/cron/jobs.json.
 #
-# Reset automático: 04:00 (default do OpenClaw) — a sessão
-# do dia anterior morre antes do cron das 06:00 criar a nova.
+# Como funciona:
 #
-# Referência: patches/vita-SESSION-DESIGN.md (Camada 1)
+#   • --session main  → o evento cai na main session da Vita, que já
+#     está quente porque o heartbeat (configurado em vita-agent-config.json5)
+#     aquece ela a cada 55 min durante 06-23h.
+#
+#   • --system-event  → injeta texto na fila da main session, não spawna
+#     sessão isolada. Mantém continuidade de contexto: a Vita "vê" o que
+#     ela mesma fez no daily-tick durante o resto do dia.
+#
+#   • --wake now  → processa imediatamente, sem esperar o próximo
+#     heartbeat natural.
+#
+# A mensagem é curta porque SKILL.md e patches/vita-AGENTS.md já estão
+# carregados na main session. "Morning Pipeline" é um Standing Order
+# documentado; a Vita sabe o que fazer.
+#
+# Referência: patches/vita-SESSION-DESIGN.md (Camada 4)
 # Standing Order: Morning Pipeline (patches/vita-AGENTS.md)
 # ------------------------------------------------------------------
 
@@ -18,22 +32,6 @@ openclaw cron add \
   --cron "0 6 * * *" \
   --tz "America/Maceio" \
   --agent "vita" \
-  --session "session:vita-daily" \
-  --message "Execute o daily-tick da skill vita-task-manager:
-
-python3 scripts/cli.py daily-tick \\
-  --today \$(date +%d/%m) --year \$(date +%Y) \\
-  --rotina input/rotina.md \\
-  --agenda-semana input/agenda-semana.md \\
-  --data-dir data \\
-  --output output/diarias.txt \\
-  --history-output data/historico-execucao.md
-
-Após executar:
-1. Verificar que o JSON retornado tem ok: true
-2. Verificar que output/diarias.txt foi atualizado
-3. Entregar diarias.txt ao usuário com sumário breve
-4. Se ok: false em qualquer sub-step, escalar ao usuário com diagnóstico
-
-Seguir o programa Morning Pipeline documentado em AGENTS.md." \
-  --announce
+  --session main \
+  --wake now \
+  --system-event "Execute o Morning Pipeline agora usando a data de hoje. Rode daily-tick do CLI, verifique o resultado, e entregue diarias.txt ao usuário com um sumário breve. Se qualquer sub-step falhar (ok: false), escale com diagnóstico."

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # ------------------------------------------------------------------
-# Vita Weekly — Cron semanal domingo 20:00 (Fase 1)
+# Vita Weekly — Cron interno do OpenClaw, domingo 20:00
 #
-# Roda weekly-tick na mesma sessão nomeada "vita-daily".
-# Reutiliza a sessão do dia (se ainda viva) para ter contexto
-# das interações da semana. Se a sessão já resetou (após 04:00),
-# cria uma nova automaticamente.
+# Mesma mecânica do cron-daily.sh: evento injetado na main session da
+# Vita via scheduler nativo do Gateway. Vita usa os tools do plugin/CLI
+# para rodar weekly-tick, e o output fica no histórico da própria main
+# session — disponível pra ela consultar ao longo da semana seguinte.
 #
-# Referência: patches/vita-SESSION-DESIGN.md (Camada 1)
+# Referência: patches/vita-SESSION-DESIGN.md (Camada 4)
 # Standing Order: Weekly Reflection (patches/vita-AGENTS.md)
 # ------------------------------------------------------------------
 
@@ -16,23 +16,6 @@ openclaw cron add \
   --cron "0 20 * * 0" \
   --tz "America/Maceio" \
   --agent "vita" \
-  --session "session:vita-daily" \
-  --message "Execute o weekly-tick da skill vita-task-manager:
-
-python3 scripts/cli.py weekly-tick \\
-  --today \$(date +%d/%m) --year \$(date +%Y) \\
-  --data-dir data \\
-  --history-output data/historico-execucao.md
-
-Após executar:
-1. Verificar que o JSON retornado tem ok: true
-2. Apresentar ao usuário a taxa de conclusão da semana
-3. Se steps.recurrence_candidates.candidates não estiver vazio,
-   apresentar os candidatos com suggestion_reason
-4. NÃO ativar regras de recorrência sem aprovação explícita do usuário
-5. Se execution-history indicar taxa de conclusão < 40%, não sugerir
-   novas recorrências (semana foi difícil)
-6. Se ok: false em qualquer sub-step, escalar ao usuário
-
-Seguir o programa Weekly Reflection documentado em AGENTS.md." \
-  --announce
+  --session main \
+  --wake now \
+  --system-event "Execute o Weekly Reflection agora usando a data de hoje. Rode weekly-tick do CLI, apresente ao usuário a taxa de conclusão da semana. Se houver candidatos de recorrência, apresente com suggestion_reason mas NÃO ative sem aprovação explícita. Se a taxa de conclusão for < 40%, não sugira novas recorrências (semana difícil)."
