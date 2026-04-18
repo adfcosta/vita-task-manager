@@ -36,7 +36,7 @@ Essa separação garante que:
 Cada patch usa marcadores HTML para delimitar o bloco a enxertar:
 
 ```
-<!-- BEGIN vita-task-manager v2.11.0 -->
+<!-- BEGIN vita-task-manager v2.11.1 -->
 ...conteúdo do bloco...
 <!-- END vita-task-manager -->
 ```

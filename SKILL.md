@@ -477,21 +477,24 @@ Crontab:
 
 ### Exemplo: OpenClaw cron
 
-Standing orders da Vita podem disparar os tick commands via cron do OpenClaw. Ver `patches/vita-AGENTS.md` para a tabela de governança que lista os comandos compostos.
+Standing orders da Vita disparam os tick commands via cron do OpenClaw. Ver `patches/vita-AGENTS.md` (bloco `Sistema de Tasks`) para o mapeamento `intenção → comando` e os programas formais.
 
 ### Standing Orders (OpenClaw)
 
-Os comandos `daily-tick` e `weekly-tick` foram desenhados para
-serem invocados por programas de standing orders da Vita no
-OpenClaw. Os programas formais (Morning Pipeline, Weekly Reflection,
-Duplicate Guardrail) estão documentados em
-`patches/vita-AGENTS.md` na seção "Programas (Standing Orders)",
-seguindo o padrão de https://docs.openclaw.ai/automation/standing-orders.
+Os comandos `daily-tick` e `weekly-tick` são disparados pelos três
+programas resumidos em `patches/vita-AGENTS.md` (seção Standing
+Orders):
 
-Quando o Faber aplicar o patch, a Vita ganha autoridade permanente
-para rodar esses programas dentro dos limites de Approval Gate e
-Escalation documentados. Nenhuma feature nova de código é
-necessária — os programas compõem comandos existentes.
+- **Morning Pipeline** — `daily-tick` às 06:00 Maceio
+- **Weekly Reflection** — `weekly-tick` domingo 20:00 Maceio
+  (recorrências exigem aprovação explícita)
+- **Duplicate Guardrail** — event-triggered, pausa `ledger-add` em
+  warning de duplicata
+
+Quando o patch é aplicado, a Vita ganha autoridade permanente para
+rodar esses programas dentro dos limites de Approval Gate e
+Escalation listados no próprio bloco. Nenhuma feature nova de
+código é necessária — os programas compõem comandos existentes.
 
 ### Otimização de sessão
 
