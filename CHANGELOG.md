@@ -5,6 +5,54 @@ Todas as mudanças notáveis desta skill serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [2.16.0] - 2026-04-18
+
+### Adicionado
+- **Instrumentação de nudges (spec TDAH §11):** registro do nudge
+  ganha `emitted_at`, `delivery_status` (`pending|success|failed|
+  skipped`) e `next_task_update_at`. Base pra medir se nudge virou
+  ação útil em vez de adivinhar.
+- **Ciclo de vida append-only:** três novos tipos de evento no
+  ledger de nudges — `delivery` (resultado do envio), `link`
+  (timestamp do próximo update da task) e `nudge_ack` com
+  `response_kind` (`agora|depois|replanejar|ignorado`). Imutabilidade
+  do ledger preservada: consolidação acontece na leitura via
+  `consolidate_nudges`.
+- **Módulo `scripts/kpis.py`:** `compute_kpis(data_dir, window_days)`
+  devolve `total_nudges`, `action_within_2h`, `action_within_24h`,
+  `median_hours_to_update`, `ignored_rate`, `by_alert_type`,
+  `delivery`, `response_kinds` e `variants` (breakdown por
+  `copy_variant` — base pra A/B). Preenche `next_task_update_at`
+  lazy varrendo `data/historico/*.jsonl` quando o `link` não foi
+  registrado.
+- **Comandos CLI novos:**
+  - `cli nudge-delivery --nudge-id <id> --status <success|failed|
+    skipped>` — Janus chama após tentar enviar o nudge.
+  - `cli nudge-kpis --window-days 7` — inspeção de retro semanal.
+  - `cli nudges-ack --response-kind <agora|depois|replanejar|
+    ignorado>` — classificação da resposta do usuário.
+- **Patch `janus-AGENTS.md` atualizado (v2.16.0):** nova subseção
+  "Instrumentação de nudges" descreve quando chamar
+  `nudge-delivery` (pós-envio), como mapear resposta do usuário pra
+  `--response-kind`, e quando rodar `nudge-kpis` (retro semanal).
+
+### Mudado
+- **Record do nudge inclui campos de instrumentação** por padrão.
+  Backfill não é necessário: campos default pra `pending`/`None` e
+  consolidação lida com ambos.
+- **`heartbeat.py` ganha helpers:** `mark_delivery`,
+  `link_nudge_to_next_update` e `ack_nudge` (com `response_kind`
+  opcional). Cada um append-only.
+
+### Contexto
+- Quinta fase do roadmap `docs/roadmap-tdah-evidence.md`. Fecha o
+  loop: as fases anteriores adicionaram *detecção* de alertas
+  (`first_touch`, `off_pace`); v2.16.0 adiciona *medição* — sem
+  isso, A/B de copy e análise de eficácia ficam no chute.
+- 5 novos testes (92 no total): instrumentação no record,
+  `mark_delivery` + `ack` com `response_kind`, KPI de ação na
+  janela, KPI de nudge ignorado, breakdown por variante.
+
 ## [2.15.0] - 2026-04-18
 
 ### Adicionado

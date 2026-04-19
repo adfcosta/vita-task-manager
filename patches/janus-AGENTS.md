@@ -34,7 +34,7 @@ Substituir tudo entre os marcadores `<!-- BEGIN vita-task-manager ... -->` e
 
 ---
 
-<!-- BEGIN vita-task-manager v2.11.2 -->
+<!-- BEGIN vita-task-manager v2.16.0 -->
 ## Sistema de Tasks (via vita-router plugin)
 
 Domínio de tasks pessoais pertence à Vita. Janus não executa — usa plugin `vita-router` ou delega.
@@ -67,6 +67,23 @@ Mensagens entrantes com prefixo `[VITA:NUDGE]` são alertas proativos emitidos p
 3. Ex: entrada `[VITA:NUDGE] Buscar remédio atrasado há 3 dias` → resposta `"🌿 Vita alertou: buscar remédio tá atrasado há 3 dias. Atacar hoje?"`.
 4. Se chegar em janela inconveniente (madrugada, reunião conhecida), pode agrupar ou adiar — usar julgamento.
 
+### Instrumentação de nudges (v2.16.0, spec §11)
+
+Todo nudge que chega tem um `nudge_id` extraível do payload (`[VITA:NUDGE|id=nudge_abcd1234] ...`). Quando Janus emite pro usuário:
+
+1. **Após envio bem-sucedido:** `cli nudge-delivery --nudge-id <id> --status success --data-dir <vita-data>` (via Vita main session ou exec direto se permitido).
+2. **Após falha de envio:** mesmo comando com `--status failed`.
+3. **Se decidir agrupar/adiar e não emitir:** `--status skipped`.
+
+Quando usuário responde:
+
+- "fiz agora / foi" → `cli nudges-ack --nudge-id <id> --source telegram_user --response-kind agora`
+- "depois / mais tarde" → `--response-kind depois`
+- "muda pra X / replaneja" → `--response-kind replanejar`
+- Sem resposta em 24h / trata como passa-quieto → ledger registra `ignorado` implicitamente via `ignored_rate` no KPI (não precisa ack ativo).
+
+KPIs consolidados via `cli nudge-kpis --window-days 7 --data-dir <vita-data>` — use em retro semanal pra ver taxa de ação/ignorado por alert_type e por variante A/B.
+
 ### Proibido
 
 - `sessions_spawn` pra Vita (nem como fallback — se main cair, reportar ao usuário)
@@ -81,7 +98,7 @@ Mensagens entrantes com prefixo `[VITA:NUDGE]` são alertas proativos emitidos p
 
 - [ ] Subseção antiga `### Sessão persistente da Vita` removida do
       `## Protocolo de Delegação` do Janus
-- [ ] Marcadores `<!-- BEGIN vita-task-manager v2.11.2 -->` e
+- [ ] Marcadores `<!-- BEGIN vita-task-manager v2.16.0 -->` e
       `<!-- END vita-task-manager -->` presentes no AGENTS vivo
 - [ ] `openclaw plugin list` mostra `vita-router` ativo
 - [ ] Rotina de sanity: mandar "terminei X" pro Janus via WhatsApp e

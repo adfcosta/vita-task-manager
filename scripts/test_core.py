@@ -2728,6 +2728,211 @@ def test_nudges_pending_and_ack():
         print("✓ test_nudges_pending_and_ack")
 
 
+def test_nudge_record_has_instrumentation_fields():
+    """v2.16.0 spec §11: record emitido tem emitted_at, delivery_status, next_task_update_at."""
+    from ledger import get_ledger_filename
+    from heartbeat import build_heartbeat_nudges
+    from cli import _build_alerts
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        record = _create_test_ledger_record("t1", "Task atrasada", "[ ]",
+                                             created_at="2026-04-10T09:00:00")
+        record["due_date"] = "10/04"
+        record["updated_at"] = "2026-04-10T10:00:00"
+        _write_jsonl(ledger_file, [record])
+
+        alerts_res = _build_alerts(data_dir, today, 2026)
+        res = build_heartbeat_nudges(data_dir=data_dir, alerts=alerts_res["alerts"])
+        assert res["nudges_new"] == 1
+
+        nudge = res["nudges_records"][0]
+        assert "emitted_at" in nudge
+        assert nudge["emitted_at"] is None, "emitted_at só preenche após delivery"
+        assert nudge.get("delivery_status") == "pending"
+        assert "next_task_update_at" in nudge
+        assert nudge["next_task_update_at"] is None
+        print("✓ test_nudge_record_has_instrumentation_fields")
+
+
+def test_mark_delivery_and_ack_with_response_kind():
+    """v2.16.0: mark_delivery registra status; ack_nudge aceita response_kind."""
+    from ledger import get_ledger_filename, load_ledger
+    from heartbeat import build_heartbeat_nudges, mark_delivery, ack_nudge
+    from cli import _build_alerts
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        record = _create_test_ledger_record("t1", "Task atrasada", "[ ]",
+                                             created_at="2026-04-10T09:00:00")
+        record["due_date"] = "10/04"
+        record["updated_at"] = "2026-04-10T10:00:00"
+        _write_jsonl(ledger_file, [record])
+
+        alerts_res = _build_alerts(data_dir, today, 2026)
+        res = build_heartbeat_nudges(data_dir=data_dir, alerts=alerts_res["alerts"])
+        nudge_id = res["nudges_records"][0]["id"]
+
+        mark_delivery(data_dir, nudge_id, "success")
+        ack_nudge(data_dir, nudge_id, source="telegram_user", response_kind="agora")
+
+        records = load_ledger(data_dir / "proactive-nudges.jsonl")
+        deliveries = [r for r in records if r.get("type") == "delivery"]
+        acks = [r for r in records if r.get("type") == "nudge_ack"]
+        assert len(deliveries) == 1
+        assert deliveries[0]["delivery_status"] == "success"
+        assert deliveries[0]["nudge_id"] == nudge_id
+        assert "emitted_at" in deliveries[0]
+
+        assert len(acks) == 1
+        assert acks[0]["response_kind"] == "agora"
+        assert acks[0]["ack_source"] == "telegram_user"
+        print("✓ test_mark_delivery_and_ack_with_response_kind")
+
+
+def test_compute_kpis_action_within_window():
+    """v2.16.0 spec §16: nudge seguido por update 1h depois conta como action_within_2h."""
+    from datetime import datetime
+    from ledger import get_ledger_filename
+    from heartbeat import build_heartbeat_nudges, mark_delivery, link_nudge_to_next_update
+    from cli import _build_alerts
+    from kpis import compute_kpis
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        record = _create_test_ledger_record("t1", "Task atrasada", "[ ]",
+                                             created_at="2026-04-10T09:00:00")
+        record["due_date"] = "10/04"
+        record["updated_at"] = "2026-04-10T10:00:00"
+        _write_jsonl(ledger_file, [record])
+
+        now = datetime(2026, 4, 13, 10, 0, 0)
+        alerts_res = _build_alerts(data_dir, today, 2026)
+        res = build_heartbeat_nudges(
+            data_dir=data_dir,
+            alerts=alerts_res["alerts"],
+            now=now,
+        )
+        nudge_id = res["nudges_records"][0]["id"]
+
+        mark_delivery(data_dir, nudge_id, "success", emitted_at=now)
+        # Update da task 1h depois
+        link_nudge_to_next_update(
+            data_dir, nudge_id,
+            task_update_at=datetime(2026, 4, 13, 11, 0, 0),
+        )
+
+        kpis = compute_kpis(
+            data_dir,
+            window_days=7,
+            now=datetime(2026, 4, 13, 20, 0, 0),
+        )
+        assert kpis["total_nudges"] == 1
+        assert kpis["action_within_2h"] == 1
+        assert kpis["action_within_24h"] == 1
+        assert kpis["ignored_count"] == 0
+        assert kpis["median_hours_to_update"] == 1.0
+        assert kpis["delivery"]["success"] == 1
+        assert "overdue" in kpis["by_alert_type"]
+        assert kpis["by_alert_type"]["overdue"]["action_24h"] == 1
+        print("✓ test_compute_kpis_action_within_window")
+
+
+def test_compute_kpis_ignored_nudge():
+    """v2.16.0: nudge sem ack nem update em 24h entra em ignored_count."""
+    from datetime import datetime
+    from ledger import get_ledger_filename
+    from heartbeat import build_heartbeat_nudges, mark_delivery
+    from cli import _build_alerts
+    from kpis import compute_kpis
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        record = _create_test_ledger_record("t1", "Task atrasada", "[ ]",
+                                             created_at="2026-04-10T09:00:00")
+        record["due_date"] = "10/04"
+        record["updated_at"] = "2026-04-10T10:00:00"
+        _write_jsonl(ledger_file, [record])
+
+        now = datetime(2026, 4, 12, 10, 0, 0)
+        alerts_res = _build_alerts(data_dir, today, 2026)
+        res = build_heartbeat_nudges(
+            data_dir=data_dir,
+            alerts=alerts_res["alerts"],
+            now=now,
+        )
+        nudge_id = res["nudges_records"][0]["id"]
+        mark_delivery(data_dir, nudge_id, "success", emitted_at=now)
+
+        # Olha a janela 48h depois, sem ack nem update
+        kpis = compute_kpis(
+            data_dir,
+            window_days=7,
+            now=datetime(2026, 4, 14, 10, 0, 0),
+        )
+        assert kpis["total_nudges"] == 1
+        assert kpis["action_within_24h"] == 0
+        assert kpis["ignored_count"] == 1
+        assert kpis["ignored_rate"] == 1.0
+        print("✓ test_compute_kpis_ignored_nudge")
+
+
+def test_compute_kpis_variant_breakdown():
+    """v2.16.0: KPIs por copy_variant (base pra A/B mensurado)."""
+    from datetime import datetime
+    from ledger import get_ledger_filename
+    from heartbeat import build_heartbeat_nudges, mark_delivery, link_nudge_to_next_update
+    from cli import _build_alerts
+    from kpis import compute_kpis
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        # Duas tasks críticas — nudges distintos com variantes potencialmente diferentes
+        records = []
+        for i in range(2):
+            r = _create_test_ledger_record(f"t{i}", f"Task {i}", "[ ]",
+                                             created_at="2026-04-10T09:00:00")
+            r["due_date"] = "10/04"
+            r["updated_at"] = "2026-04-10T10:00:00"
+            records.append(r)
+        _write_jsonl(ledger_file, records)
+
+        now = datetime(2026, 4, 13, 10, 0, 0)
+        alerts_res = _build_alerts(data_dir, today, 2026)
+        res = build_heartbeat_nudges(data_dir=data_dir, alerts=alerts_res["alerts"], now=now)
+        assert res["nudges_new"] == 2
+
+        for nrec in res["nudges_records"]:
+            mark_delivery(data_dir, nrec["id"], "success", emitted_at=now)
+            link_nudge_to_next_update(
+                data_dir, nrec["id"],
+                task_update_at=datetime(2026, 4, 13, 12, 0, 0),
+            )
+
+        kpis = compute_kpis(
+            data_dir,
+            window_days=7,
+            now=datetime(2026, 4, 13, 20, 0, 0),
+        )
+        assert kpis["total_nudges"] == 2
+        # Cada variante conta sua parte do total; soma deve bater
+        total_in_variants = sum(v["total"] for v in kpis["variants"].values())
+        assert total_in_variants == 2
+        # Ambos tiveram update em 24h
+        assert sum(v["action_24h"] for v in kpis["variants"].values()) == 2
+        print("✓ test_compute_kpis_variant_breakdown")
+
+
 def run_all_tests():
     """Executa todos os testes."""
     print('\n=== Testes vita-task-manager ===\n')
@@ -2818,6 +3023,11 @@ def run_all_tests():
     test_off_pace_ignored_on_pace()
     test_off_pace_requires_progress_fields()
     test_nudges_pending_and_ack()
+    test_nudge_record_has_instrumentation_fields()
+    test_mark_delivery_and_ack_with_response_kind()
+    test_compute_kpis_action_within_window()
+    test_compute_kpis_ignored_nudge()
+    test_compute_kpis_variant_breakdown()
     print('\n✓ Todos os testes passaram!\n')
 
 
