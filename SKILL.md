@@ -10,483 +10,209 @@ metadata:
 
 # Vita Task Manager
 
-Sistema de tasks pessoais com **ledger JSONL append-only** como fonte de verdade, otimizado para TDAH.
+Sistema de tasks pessoais via ledger JSONL append-only.
 
 **Versão:** 2.18.0
 
-## Regra de Ouro
+## Regra de ouro
 
-Escrita só via `python3 scripts/cli.py ...`. Nunca use `write`, `edit` ou edição direta nos arquivos de `output/` ou `data/historico/`.
+Toda escrita passa por `python3 scripts/cli.py ...`. Nunca editar `output/`, `data/historico/*.jsonl`, `data/*.json`.
+`input/rotina.md` e `input/agenda-semana.md` são editados pelo usuário — você só lê.
 
-Exceção: `input/rotina.md` e `input/agenda-semana.md` são editados manualmente pelo usuário — a skill apenas lê.
+Se um comando não existe pra operação que o usuário pediu, **não fazer** — pergunte ou escale.
 
-## Estrutura de Arquivos
+## Arquivos
 
-O repositório versiona apenas o código da skill e exemplos. Todos os dados pessoais e arquivos gerados ficam no `.gitignore` — use `examples/` como ponto de partida.
+| Caminho | Quem edita |
+|---|---|
+| `input/rotina.md` | Usuário |
+| `input/agenda-semana.md` | Usuário |
+| `data/historico/*.jsonl` | CLI (fonte de verdade) |
+| `data/historico-execucao.md` | CLI entre `<!-- BEGIN METRICS -->`/`<!-- END METRICS -->`; `## Observações` é seu |
+| `data/word_weights.json` | CLI |
+| `data/proactive-nudges.jsonl` | CLI |
+| `data/heartbeat-config.json` | Config manual OK |
+| `output/diarias.txt` | CLI |
 
-| Caminho | Papel | Quem edita | Versionado? |
-|---|---|---|---|
-| `input/rotina.md` | Rotina diária (entra todo dia no pipeline) | Usuário | ❌ gitignore |
-| `input/agenda-semana.md` | Compromissos pontuais da semana | Usuário | ❌ gitignore |
-| `data/historico/DDMMYY_DDMMYY_bruto.jsonl` | Ledger append-only (fonte de verdade) | CLI | ❌ gitignore |
-| `data/historico-execucao.md` | Relatório de padrões de execução | CLI (execution-history) | ❌ gitignore |
-| `data/word_weights.json` | Pesos por palavra para detecção de duplicatas | CLI (execution-history) | ❌ gitignore |
-| `output/diarias.txt` | Render diário em formato WhatsApp | CLI (pipeline/render) | ❌ gitignore |
-| `examples/rotina.md` | Exemplo de rotina (ponto de partida) | Mantenedores | ✅ versionado |
-
-`output/diarias.md` **não existe por padrão** — só é gerado se você invocar `render --format markdown --output output/diarias.md` explicitamente.
-
-## Arquivos de Input
+## Formato dos inputs
 
 ### `input/rotina.md`
 
-Lista achatada de tarefas diárias com horário:
-
 ```markdown
-# Rotina
-
-## Tarefas Diárias
-
 - 06:00 | Meditação 10min
 - 07:00 | Café da manhã
-- 08:00 | Revisar e-mails
+- 08:00 | Tomar remédio !nudge
 ```
 
-Cada linha: `- {HH:MM} | {descrição}`. Sem prioridade, sem checkbox — a skill injeta essas entradas no ledger todo dia via `sync-fixed` (chamado automaticamente pelo pipeline).
+- `- HH:MM | descrição` → entra no ledger todo dia via `sync-fixed` (dedupe por hash).
+- `!nudge` no fim da linha → opt-in pra alerta `missed_routine` se não executar.
 
 ### `input/agenda-semana.md`
 
-Compromissos pontuais agrupados por dia:
-
 ```markdown
-# Agenda da Semana — 06/04 a 12/04/2026
-
-## Domingo 06/04
-
 ## Segunda 07/04
 - 14:00 — Médico
-- 22:00 — Reunião
-
-## Terça 08/04
-- 10:00 — Dentista
 ```
 
-Separador aceito: `—`, `-`, `–` ou `|`. Esses itens aparecem no render como **compromissos do dia** (informativo), não como tasks no ledger.
+Separadores aceitos: `—`, `-`, `–`, `|`. Compromissos aparecem como informativo no render, **não** viram task.
 
-## Fluxo Diário (Pipeline)
+## Intenção → comando
 
-Comando único que faz tudo:
+Use sempre `--today DD/MM --year YYYY --data-dir data` (omito nas tabelas por brevidade).
 
-```bash
-python3 scripts/cli.py pipeline \
-  --today 08/04 --year 2026 \
-  --rotina input/rotina.md \
-  --agenda-semana input/agenda-semana.md \
-  --data-dir data \
-  --output output/diarias.txt
-```
+### Fluxo diário
 
-O que acontece internamente:
+| Intenção | Comando |
+|---|---|
+| Rodar o dia (rollover + sync rotina + render) | `pipeline` |
+| Manhã (pipeline + histórico + pesos) | `daily-tick` |
+| Domingo/segunda (histórico + candidatos recorrência + diagnóstico) | `weekly-tick` |
+| Só renderizar, sem alterar ledger | `render` |
 
-1. **Rollover semanal** — se houver ledger da semana anterior com tasks pendentes, carrega pro novo ledger (automático, roda no primeiro dia da semana em que o pipeline for chamado)
-2. **Sync da rotina** — injeta as entradas de `rotina.md` do dia no ledger (dedupe via hash, não duplica em re-runs)
-3. **Avaliação de feedback** — decide se precisa pedir novo feedback à Vita (ver seção Feedback)
-4. **Render** — gera `output/diarias.txt` em formato WhatsApp
+- `pipeline` escreve `output/diarias.txt` em WhatsApp. Markdown só via `render --format markdown`.
+- `pipeline` **não aceita** `--format`.
 
-Flags opcionais:
+### CRUD
 
-- `--force-feedback` — força `feedback_status=offer` mesmo quando nada mudou
+| Intenção | Comando |
+|---|---|
+| Criar task | `ledger-add` |
+| Refinar task existente (mudar contexto, prioridade, prazo) | `ledger-update` — **nunca** `ledger-add` |
+| Iniciar (respeita WIP=2) | `ledger-start` |
+| Progresso com unidades | `ledger-progress --done N --total M --unit "..."` |
+| Concluir | `ledger-complete` |
+| Cancelar | `ledger-cancel --reason "..."` |
 
-### Sobre `--format`
+Todos aceitam `--description` no lugar de `--task-id` (resolve por texto).
 
-⚠️ **O comando `pipeline` NÃO aceita `--format`** — ele sempre escreve formato WhatsApp em `output/diarias.txt`.
-
-Se você precisar do formato markdown, use o comando `render` separadamente (ver seção Render).
-
-### Retorno do pipeline
-
-JSON com campos úteis:
-
-```json
-{
-  "ledger_path": "data/historico/050426_110426_bruto.jsonl",
-  "rollover": {"performed": false},
-  "sync_fixed": {"inserted": [...], "skipped": [...]},
-  "feedback_status": "required",
-  "feedback_seed": {...},
-  "last_feedback": null,
-  "changes_since": [],
-  "output_path": "output/diarias.txt",
-  "summary": {"open": 7, "completed_today": 0, "cancelled_today": 0, "compromissos": 0}
-}
-```
-
-## Feedback
-
-Se `feedback_status` for `required` ou `offer`:
-
-1. Ler `feedback_seed` (tem `has_overdue`, `due_today`, `at_risk_tasks`, `suggested_focus`, etc.)
-2. Gerar os 4 campos obrigatórios: `panorama`, `foco`, `alerta`, `acao_sugerida`
-3. Salvar via `store-feedback`
-4. Re-renderizar se quiser que o feedback apareça no `.txt`
-
-Exemplo de `store-feedback`:
-
-```bash
-python3 scripts/cli.py store-feedback \
-  --today 08/04 --year 2026 --data-dir data \
-  --data '{"panorama":"Há 3 tasks urgentes","foco":"Relatório do cliente","alerta":"Prazo em 2 dias","acao_sugerida":"Bloquear 2h de foco agora"}'
-```
-
-Todos os 4 campos são obrigatórios — a CLI rejeita payloads incompletos.
-
-Se `feedback_status=skip`, nada mudou desde o último feedback — não precisa gerar novo.
-
-## Formato de Saída (WhatsApp)
-
-O `output/diarias.txt` segue este layout:
-
-```
-📋 Tasks — 08/04/2026
-
-🔴 URGENTE (prazo hoje)
-▢ Revisar arquitetura
-
-🟡 EM ANDAMENTO
-⏳ Escrever documentação
-  [█████░░░░░] 50% (5/10 páginas)
-  restam 5 páginas
-
-🟢 BAIXA PRIORIDADE
-▢ Ligar dentista
-
-➖➖➖➖➖➖➖➖➖➖
-
-🧠 BRAIN DUMP
-⏰ até 10/04:
-• Trocar lâmpada
-• Comprar café
-💡 Dica: Escolha 1 pra virar próxima ação
-
-➖➖➖➖➖➖➖➖➖➖
-
-🎯 SUGESTÃO 1-3-5
-🔥 BIG: 👉 Revisar arquitetura — score 38
-   Por quê: prazo imediato; exige bloco de foco
-⚡ MEDIUM: 👉 Responder emails — score 52
-   Por quê: prazo hoje; rápido de fazer
-...
-```
-
-Prefixos de idade:
-- `⚠️` — task parada há mais de 7 dias
-- `👻` — task parada há mais de 14 dias
-
-## Comandos
+**Duplicate guardrail:** se `ledger-add` retornar `warning.type == "duplicate_suspect"`, parar, mostrar a task similar ao usuário, oferecer: atualizar a existente (`ledger-update`), criar mesmo assim (`--allow-duplicate`), ou cancelar. Nunca decidir sozinha.
 
 ### Captura rápida (TDAH)
 
-```bash
-# brain dump: captura texto livre sem criar task
-python3 scripts/cli.py brain-dump \
-  --text "Comprar café, ligar pro João" \
-  --today 08/04 --year 2026 --data-dir data
-
-# com prazo opcional (DD/MM/YYYY ou +N dias):
-python3 scripts/cli.py brain-dump --text "..." --due +3 ...
-
-# promover item do dump pra task formal
-python3 scripts/cli.py dump-to-task \
-  --dump-id 20260408_dump_001 \
-  --item "Comprar café" \
-  --priority 🟡 \
-  --next-action "Passar no mercado antes das 18h" \
-  --today 08/04 --year 2026 --data-dir data
-```
-
-`dump-to-task` também aceita `--due` (herda do dump se não passar).
-
-### CRUD de tasks
-
-```bash
-ledger-add       --description "..." --priority 🔴 --due 10/04 ...
-ledger-start     --task-id ID ...      # respeita WIP limit
-ledger-progress  --task-id ID --done 5 --total 10 --unit "pgs" ...
-ledger-complete  --task-id ID ...
-ledger-cancel    --task-id ID --reason "..." ...
-ledger-update    --task-id ID [--new-description "..."] [--context "..."] [--priority 🔴] [--due DD/MM] ...
-```
-
-Todos aceitam `--description` no lugar de `--task-id` pra resolução por texto.
-
-`ledger-update` altera campos de uma task existente sem criar duplicata. Só os campos passados são modificados — o resto permanece intacto. Use em vez de `ledger-add` quando o usuário está refinando uma task (mudando contexto, renomeando, etc.).
-
-### Priorização (scoring)
-
-```bash
-python3 scripts/cli.py score-task --task-id ID --today DD/MM --year YYYY --data-dir data
-python3 scripts/cli.py suggest-daily --today DD/MM --year YYYY --data-dir data --limit 9
-python3 scripts/cli.py explain-task --task-id ID --today DD/MM --year YYYY --data-dir data
-```
-
-Use `suggest-daily` quando o usuário perguntar "o que fazer hoje?" ou parecer sobrecarregado.
-
-### Apoio
-
-```bash
-check-wip         # quantas tasks estão em [~] e se pode iniciar mais
-sync-fixed        # injeta rotina.md do dia (chamado automaticamente pelo pipeline)
-store-feedback    # salva feedback da Vita (ver seção Feedback)
-rollover          # rollover semanal manual (automático no pipeline)
-ledger-status     # diagnóstico do estado do ledger (semana atual, anterior, issues)
-```
-
-### Render (único que aceita `--format`)
-
-```bash
-# padrão: WhatsApp → output/diarias.txt
-python3 scripts/cli.py render \
-  --today DD/MM --year YYYY --data-dir data \
-  --output output/diarias.txt
-
-# opcional: markdown explícito
-python3 scripts/cli.py render \
-  --today DD/MM --year YYYY --data-dir data \
-  --output output/diarias.md --format markdown
-```
-
-`render` não altera o ledger — só lê o estado atual e escreve o arquivo.
-
-### Resumo semanal
-
-```bash
-python3 scripts/cli.py weekly-summary \
-  --ledger data/historico/050426_110426_bruto.jsonl \
-  --format md  # ou json
-```
-
-### Histórico de execução
-
-```bash
-python3 scripts/cli.py execution-history \
-  --today DD/MM --year YYYY --data-dir data \
-  --output data/historico-execucao.md \
-  --weeks 4
-```
-
-Gera relatório de padrões de execução lido pela Vita no Session Start para calibrar planejamento. Métricas: taxa de conclusão semanal, análise por origem (rotina/manual/brain_dump), top 5 tasks mais adiadas, desempenho por dia da semana.
-
-O arquivo usa marcadores `<!-- BEGIN METRICS -->` / `<!-- END METRICS -->` — re-runs atualizam só as métricas, preservando a seção `## Observações` (anotações manuais).
-
-**Subproduto:** também gera `data/word_weights.json` com pesos por palavra para detecção inteligente de duplicatas (ver seção Detecção de Duplicatas).
-
-### Diagnóstico do ledger
-
-```bash
-python3 scripts/cli.py ledger-status \
-  --today DD/MM --year YYYY --data-dir data
-```
-
-Retorna JSON com estado de saúde: semana atual/anterior, tasks abertas, rollover pendente, issues detectados. Use quando suspeitar de problemas no ledger (tasks sumindo, rollover perdido, etc.).
-
-### Alertas
-
-```bash
-python3 scripts/cli.py check-alerts \
-  --today DD/MM --year YYYY --data-dir data
-```
-
-Inspeciona o ledger e retorna JSON com alertas acionáveis:
-
-| Tipo | Condição |
+| Intenção | Comando |
 |---|---|
-| `due_today` | Task com `due_date` = hoje |
-| `overdue` | Task com `due_date` no passado (inclui `days_overdue`) |
-| `stalled` | Task em `[~]` há mais de 48h sem atualização |
-| `blocked` | Task com `postpone_count >= 3` |
+| Texto livre (não cria task) | `brain-dump --text "..."` (opcional `--due +N` ou `DD/MM/YYYY`) |
+| Promover item pra task | `dump-to-task --dump-id ID --item "..." --priority 🟡 --next-action "..."` |
 
-Retorna `has_alerts: true/false`, contagens por tipo em `counts`, e lista detalhada em `alerts`. Projetado para ser chamado pelo Plugin SDK do Janus sem gastar tokens de LLM (execução local via `execSync`). Ver `patches/vita-SESSION-DESIGN.md` para o design completo.
+### Priorização
 
-### Heartbeat proativo (push)
-
-Enquanto `check-alerts` é passivo (leitura de estado), `heartbeat-tick` é o motor do push: roda a cada tick do heartbeat da Vita, filtra só alertas **críticos**, aplica cooldown e retorna texto pronto pra emitir via `sessions_send` pro canal do usuário (Janus/WhatsApp).
-
-```bash
-python3 scripts/cli.py heartbeat-tick \
-  --today DD/MM --year YYYY --data-dir data \
-  [--cooldown-hours 24]
-```
-
-**Thresholds (críticos apenas):**
-
-| Tipo | Condição crítica |
+| Intenção | Comando |
 |---|---|
-| `overdue` | `days_overdue >= 2` |
-| `stalled` | `hours_since_update >= 48` |
-| `blocked` | `postpone_count >= 3` |
-| `due_today` | nunca crítico (ruído pro push) |
+| "O que fazer hoje?" / usuário sobrecarregado | `suggest-daily --limit 9` |
+| "Por que essa task tá aí?" | `explain-task --task-id ID` |
+| Score bruto | `score-task --task-id ID` |
 
-**Cooldown:** por `task_id + alert_type`, padrão 24h. Alerta reaparece só depois do cooldown expirar.
+### Diagnóstico e alertas passivos
 
-**Retorno (JSON):**
+| Intenção | Comando |
+|---|---|
+| Estado do ledger (troubleshooting) | `ledger-status` |
+| Quantas em andamento | `check-wip` |
+| Alertas acionáveis (passivo) | `check-alerts` |
 
-```json
-{
-  "ok": true,
-  "nudges_new": 1,
-  "suppressed_by_cooldown": 0,
-  "non_critical_skipped": 3,
-  "emit_text": "🌿 Vita alertou: \"Buscar remédio — atrasada há 3 dias\". Atacar hoje?",
-  "emit_target": "agent:main:whatsapp:direct:+558296607300"
-}
-```
+### Heartbeat (push proativo)
 
-Se `emit_text` não for vazio **e** `emit_target` não for null, a Vita chama `sessions_send(emit_target, emit_text)`. Novos nudges já foram persistidos em `data/proactive-nudges.jsonl` antes do retorno (append-only), então mesmo se o envio falhar, o estado não vaza.
+| Comando | Quando |
+|---|---|
+| `heartbeat-tick` | Cada tick do cron (55min, 06–23h Maceio) |
+| `nudge-delivery --nudge-id ID --status success\|failed\|skipped` | Janus após emitir |
+| `nudges-ack --nudge-id ID --source SRC --response-kind agora\|depois\|replanejar` | Quando usuário responde |
+| `nudges-pending` | Fallback se `sessions_send` falhar — próxima interação recupera |
+| `nudge-kpis --window-days 7` | Retro semanal |
 
-**Config:** `data/heartbeat-config.json` (ver `examples/openclaw/heartbeat-config.json.example`):
+### Recorrência
+
+Nunca ativar sem aprovação explícita do usuário.
+
+| Intenção | Comando |
+|---|---|
+| Detectar candidatos (4sem) | `recurrence-detect` |
+| Ativar (após aprovação) | `recurrence-activate --pattern daily\|weekly [--weekdays "[0,2,4]"] --priority 🟡 --time-range "HH:MM"` |
+| Listar regras ativas | `recurrence-list` |
+| Desativar | `recurrence-deactivate --rule-id ID --reason "..."` |
+
+`sync-fixed` (chamado pelo pipeline) injeta tasks das regras ativas respeitando dia da semana.
+
+### Feedback do dia
+
+Comandos CRUD e `daily-tick` retornam `feedback_status` + `feedback_seed`:
+
+| `feedback_status` | Ação |
+|---|---|
+| `required` | Gerar `panorama`/`foco`/`alerta`/`acao_sugerida` a partir do seed → `store-feedback` → `render` |
+| `offer` | Perguntar "atualizo o panorama?". Se sim: idem `required` |
+| `skip` | Nada a fazer |
+
+Os 4 campos de `store-feedback` são obrigatórios. `--force-feedback` força `offer` em debug.
+
+## Alertas
+
+### Tipos
+
+| Tipo | Dispara quando |
+|---|---|
+| `overdue` | prazo no passado |
+| `due_today` | prazo = hoje |
+| `due_soon` | prazo hoje + `due_time` dentro da janela |
+| `missed_routine` | rotina com `!nudge` em `[ ]` passado horário + grace |
+| `first_touch` | task em `[ ]` criada há ≥12h sem toque |
+| `stalled` | task em `[~]` há ≥48h sem update |
+| `blocked` | postpone_count ≥ threshold |
+| `off_pace` | `done` < `(dias_passados/dias_totais) * total * ratio` |
+
+### Severidade e consolidação
+
+Ordem: `overdue` → `blocked` → `missed_routine` → `due_soon` → `first_touch` → `stalled` → `off_pace` → `due_today`.
+Múltiplos sinais da mesma task → **um** nudge consolidado por tick.
+
+### Cooldown e limite
+
+- Cooldown 24h por `task_id + alert_type`.
+- Limite `max_nudges_per_tick=3`.
+- Config viva em `data/heartbeat-config.json`, efeito no próximo tick (sem restart).
 
 ```json
 {
   "emit_target": "agent:main:whatsapp:direct:+XXYYYYYYYYYY",
   "severity_floor": "critical",
-  "cooldown_hours": 24
+  "cooldown_hours": 24,
+  "max_nudges_per_tick": 3,
+  "thresholds": {
+    "overdue_min_days": 1,
+    "stalled_min_hours": 24,
+    "blocked_min_postpones": 2,
+    "first_touch_min_hours": 12,
+    "off_pace_ratio": 0.7,
+    "due_soon_window_hours": 4,
+    "missed_routine_grace_hours": 1
+  }
 }
 ```
 
-Sem o arquivo: `emit_target=null` (não emite, só persiste), `severity_floor=critical`, `cooldown_hours=24`.
+Sem arquivo: `emit_target=null` (persiste mas não emite).
 
-**Store:** `data/proactive-nudges.jsonl` (append-only, gerenciado). Registros `type="nudge"` para alertas emitidos, `type="nudge_ack"` quando o usuário confirmou. `get_pending_nudges` ignora acks.
+### Comportamento do `heartbeat-tick`
 
-### Nudges pendentes e ack
+1. Lê alertas, filtra críticos, aplica cooldown, consolida por task, corta em `max_nudges_per_tick`.
+2. Persiste em `data/proactive-nudges.jsonl` **antes** de retornar (falha de envio não vaza estado).
+3. Retorna JSON; se `emit_text` não-vazio **e** `emit_target` não-null → chamar `sessions_send(emit_target, emit_text)`.
+4. Após enviar → `nudge-delivery` com status apropriado.
 
-```bash
-# listar nudges ainda não confirmados (backup se sessions_send falhar)
-python3 scripts/cli.py nudges-pending --data-dir data
+## WIP
 
-# marcar nudge como confirmado pelo usuário
-python3 scripts/cli.py nudges-ack \
-  --nudge-id nudge_20260418_1234 \
-  --source manual \
-  --data-dir data
-```
-
-Usar `nudges-pending` na próxima interação normal se o heartbeat não conseguir entregar (falha de `sessions_send`, janela inconveniente). Assim o nudge não se perde — reaparece no primeiro diálogo.
-
-### Detecção de duplicatas
-
-O `ledger-add` detecta automaticamente tasks similares e retorna `warning.type == "duplicate_suspect"` quando encontra.
-
-**Sem pesos (fallback):** comparação por intersecção simples de palavras (>= 50%).
-
-**Com pesos (word_weights.json):** similaridade ponderada usando 3 fatores por palavra:
-
-| Fator | O que mede | Efeito |
-|-------|-----------|--------|
-| Distintividade | Raridade em tasks completadas (log IDF) | Palavras genéricas pesam menos |
-| Evitação | Taxa de conclusão + postpone_count | Palavras de tasks evitadas pesam mais |
-| Tempo de resolução | Horas entre criação e conclusão | Palavras de tasks lentas pesam mais |
-
-`peso(palavra) = distintividade x evitacao x resolucao`
-
-Os pesos são gerados semanalmente pelo `execution-history` a partir do histórico completo do ledger. Se `word_weights.json` não existir, todas as palavras têm peso 1.0 (comportamento original).
-
-### Recorrência
-
-Detecta padrões de recorrência no histórico e permite criar regras automáticas.
-
-```bash
-# Detectar candidatos (analisa últimas 4 semanas)
-python3 scripts/cli.py recurrence-detect \
-  --today DD/MM --year YYYY --data-dir data \
-  --min-occurrences 5 --weeks 4
-
-# Ativar regra (diária ou semanal)
-python3 scripts/cli.py recurrence-activate \
-  --description "Tomar remédios" --pattern daily \
-  --priority 🟢 --time-range 08:00 \
-  --today DD/MM --year YYYY --data-dir data
-
-# Ativar regra semanal (seg/qua/sex)
-python3 scripts/cli.py recurrence-activate \
-  --description "Estudar inglês" --pattern weekly \
-  --weekdays "[0,2,4]" --priority 🟡 \
-  --today DD/MM --year YYYY --data-dir data
-
-# Listar regras ativas
-python3 scripts/cli.py recurrence-list \
-  --today DD/MM --year YYYY --data-dir data
-
-# Desativar regra (append-only, não destrutivo)
-python3 scripts/cli.py recurrence-deactivate \
-  --rule-id rule_20260413_tomar_remedios \
-  --reason "Mudou a rotina" \
-  --today DD/MM --year YYYY --data-dir data
-```
-
-**Como funciona:**
-
-- `recurrence-detect` analisa tasks concluídas no período e detecta padrões:
-  - **daily**: task aparece em >= 5 dias diferentes da semana
-  - **weekly**: 1-3 dias concentram >= 80% das ocorrências
-  - Detecta horário predominante se >= 60% das ocorrências têm mesmo HH:MM
-  - Ignora tasks de `source=rotina` e tasks que já possuem regra ativa
-- Regras são armazenadas no ledger como `type="recurrence_rule"` (append-only)
-- `sync-fixed` (chamado pelo pipeline) injeta automaticamente tasks das regras ativas, respeitando dia da semana e deduplicando por hash
-- IDs de regra: `rule_YYYYMMDD_slug[_HHMM]` com sufixo `_2`/`_3` se colidir
-
-### Legado (não usar)
-
-`validate`, `summary`, `add`, `progress`, `complete`, `cancel`, `resort` — operam no formato markdown antigo (pré-ledger). Mantidos apenas por compatibilidade. **A Vita não deve invocar esses.**
-
-## Scoring 1-3-5
-
-**Fórmula:**
-
-```
-score = (urgency × 0.35)
-      + (complexity_invertida × 0.25)
-      + (age × 0.20)
-      − (postpone_penalty × 0.20)
-```
-
-Todos os componentes vão de 0 a 100. `complexity_invertida` = tarefas simples pontuam mais (quick wins sobem na fila).
-
-**Boosts TDAH:**
-- Task parada há mais de 21 dias: `+10`
-- Task adiada 3 vezes ou mais: `+15`
-
-**Faixas de tamanho (complexidade 1-10):**
-
-| Categoria | Faixa | Papel no 1-3-5 |
-|---|---|---|
-| Big 🔥 | 8-10 | 1 por dia (tarefa de bloco de foco) |
-| Medium ⚡ | 4-7 | 3 por dia |
-| Small ✅ | 1-3 | 5 por dia |
-
-Quando uma faixa fica vazia, o `suggest-daily` faz promoção/demoção automática pra preencher os slots com as próximas melhores candidatas.
-
-## WIP Limit
-
-Padrão: **2 tasks em `[~]`** simultaneamente.
-
-```bash
-python3 scripts/cli.py check-wip --today DD/MM --year YYYY --data-dir data
-python3 scripts/cli.py ledger-start --task-id ID --today DD/MM --year YYYY --data-dir data --limit 2
-```
-
-Se já houver 2 em andamento, `ledger-start` bloqueia com mensagem: *"Você já tem 2 tarefas em andamento. Que tal terminar uma antes de começar outra?"*
+Default: 2 tasks em `[~]`. `ledger-start` bloqueia além disso com mensagem ao usuário.
 
 ## Convenções
 
-| Item | Regra |
-|---|---|
-| Semana | Domingo → sábado, timezone `America/Maceio` (UTC-3) |
-| IDs de task | `YYYYMMDD_slug`, com sufixo `_2`, `_3` se colidir |
-| IDs de dump | `YYYYMMDD_dump_NNN` (sequencial por dia) |
-| IDs de regra | `rule_YYYYMMDD_slug[_HHMM]`, com sufixo `_2`, `_3` se colidir |
-| WIP padrão | 2 tasks em `[~]` |
-| Limpeza D+1 | Tasks concluídas/canceladas só aparecem no render **no próprio dia** — somem a partir do dia seguinte |
-| Rollover | Automático no primeiro pipeline da semana nova (qualquer dia) |
+- Semana: domingo → sábado, `America/Maceio` (UTC-3).
+- IDs de task: `YYYYMMDD_slug` (`_2`, `_3` em colisão).
+- IDs de regra: `rule_YYYYMMDD_slug[_HHMM]`.
+- Limpeza D+1: tasks concluídas/canceladas somem do render a partir do dia seguinte.
+- Rollover: automático no primeiro `pipeline` da semana nova.
+
+## Legado (não invocar)
+
+`validate`, `summary`, `add`, `progress`, `complete`, `cancel`, `resort` — formato markdown pré-ledger.
 
 ## Testes
 
@@ -494,99 +220,4 @@ Se já houver 2 em andamento, `ledger-start` bloqueia com mensagem: *"Você já 
 VITA_TEST_MODE=1 python3 scripts/test_core.py
 ```
 
-A flag `VITA_TEST_MODE=1` ativa proteção anti-contaminação: se algum teste tentar escrever fora de path temporário, o `append_record` redireciona pra um arquivo `TEST_*` e emite warning.
-
-## Automação
-
-A skill é projetada para rodar via cron. Os comandos compostos `daily-tick` e `weekly-tick` agregam os sub-passos típicos de cada cadência em uma única invocação com JSON agregado.
-
-### daily-tick
-
-Executa pipeline do dia e refresh de execution-history + word_weights. Idempotente. Rode de manhã antes do dia começar.
-
-```bash
-python3 scripts/cli.py daily-tick \
-  --today 13/04 --year 2026 \
-  --rotina input/rotina.md \
-  --agenda-semana input/agenda-semana.md \
-  --data-dir data \
-  --output output/diarias.txt \
-  --history-output data/historico-execucao.md
-```
-
-Retorna JSON com `ok`, `steps.pipeline`, `steps.execution_history`. Exit code 0 se ambos sub-passos ok, 1 se qualquer um falhou.
-
-### weekly-tick
-
-Executa refresh de execution-history, detecção de candidatos a recorrência e diagnóstico do ledger. Rode domingo à noite ou segunda de manhã.
-
-```bash
-python3 scripts/cli.py weekly-tick \
-  --today 13/04 --year 2026 \
-  --data-dir data \
-  --history-output data/historico-execucao.md
-```
-
-Retorna JSON com `ok`, `steps.execution_history`, `steps.recurrence_candidates`, `steps.ledger_status`.
-
-### Exemplo: cron do OS (Linux/macOS)
-
-Crontab:
-```
-# Daily tick às 06:00
-0 6 * * * cd /caminho/para/vita-task-manager && python3 scripts/cli.py daily-tick --today $(date +\%d/\%m) --year $(date +\%Y) --rotina input/rotina.md --agenda-semana input/agenda-semana.md --data-dir data --output output/diarias.txt --history-output data/historico-execucao.md >> /tmp/vita-daily.log 2>&1
-
-# Weekly tick domingo 20:00
-0 20 * * 0 cd /caminho/para/vita-task-manager && python3 scripts/cli.py weekly-tick --today $(date +\%d/\%m) --year $(date +\%Y) --data-dir data --history-output data/historico-execucao.md >> /tmp/vita-weekly.log 2>&1
-```
-
-### Exemplo: OpenClaw cron
-
-Standing orders da Vita disparam os tick commands via cron do OpenClaw. Ver `patches/vita-AGENTS.md` (bloco `Sistema de Tasks`) para o mapeamento `intenção → comando` e os programas formais.
-
-### Standing Orders (OpenClaw)
-
-Os comandos `daily-tick` e `weekly-tick` são disparados pelos três
-programas resumidos em `patches/vita-AGENTS.md` (seção Standing
-Orders):
-
-- **Morning Pipeline** — `daily-tick` às 06:00 Maceio
-- **Weekly Reflection** — `weekly-tick` domingo 20:00 Maceio
-  (recorrências exigem aprovação explícita)
-- **Duplicate Guardrail** — event-triggered, pausa `ledger-add` em
-  warning de duplicata
-
-Quando o patch é aplicado, a Vita ganha autoridade permanente para
-rodar esses programas dentro dos limites de Approval Gate e
-Escalation listados no próprio bloco. Nenhuma feature nova de
-código é necessária — os programas compõem comandos existentes.
-
-### Otimização de sessão
-
-A Vita é projetada para operar com **sessão isolada diária** em
-vez de múltiplos spawns efêmeros. Um cron às 06:00 cria a sessão
-do dia, e o Janus comunica via `sessions_send` ao longo do dia,
-eliminando o bootstrap repetido (~60-80% de redução de tokens).
-
-A proposta completa — incluindo pruning de tool results, memory
-flush pré-compactação e Plugin SDK no Janus — está documentada
-em `patches/vita-SESSION-DESIGN.md`.
-
-## Arquivos-chave
-
-| Arquivo | Responsabilidade |
-|---|---|
-| `scripts/cli.py` | Interface de linha de comando |
-| `scripts/pipeline.py` | Orquestrador do fluxo diário |
-| `scripts/ledger.py` | Engine do ledger JSONL (leitura, merge, IDs) |
-| `scripts/ledger_ops.py` | Operações de negócio (CRUD, WIP, sync, feedback) |
-| `scripts/scoring.py` | Cálculo de score dinâmico |
-| `scripts/suggester.py` | Algoritmo 1-3-5 |
-| `scripts/render.py` | Montagem do TaskFile a partir do ledger |
-| `scripts/formatter_whatsapp.py` | Formato WhatsApp (padrão) |
-| `scripts/formatter.py` | Formato markdown (opcional) |
-| `scripts/execution_history.py` | Relatório de padrões de execução + word weights |
-| `scripts/recurrence.py` | Detecção de padrões e regras de recorrência |
-| `scripts/rollover.py` | Transição semanal de ledger |
-| `scripts/heartbeat.py` | Motor de nudges proativos (cooldown, emit_text, store) |
-| `scripts/test_core.py` | Suíte de testes |
+Flag ativa proteção anti-contaminação (redireciona escritas fora de tmp pra `TEST_*` + warning).

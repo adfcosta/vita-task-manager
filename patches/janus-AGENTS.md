@@ -37,58 +37,69 @@ Substituir tudo entre os marcadores `<!-- BEGIN vita-task-manager ... -->` e
 <!-- BEGIN vita-task-manager v2.18.0 -->
 ## Sistema de Tasks (via vita-router plugin)
 
-Domínio de tasks pessoais pertence à Vita. Janus não executa — usa plugin `vita-router` ou delega.
+Tasks pessoais = domínio da Vita. Janus não executa — roteia via plugin `vita-router` ou delega.
 
-**`sessions_spawn` para Vita: proibido.** Main session permanente em `agent:vita:main` (heartbeat 55m, 06-23h Maceio, idle 48h).
+Vita roda em **main session permanente** em `agent:vita:main` (heartbeat 55m, 06–23h Maceio, idle 48h). **`sessions_spawn` pra Vita: proibido** — se main cair, reportar ao usuário.
 
-### Decisão
+### Decisão de roteamento
 
-1. CRUD claro ("terminei X", "adiciona Y", "cancela Z") → `vita_quick_crud({message})`
-2. Status/pendências ("tem algo vencendo?") → `vita_check_alerts({})`
-3. Planejamento, análise, priorização, brain dump, 1-3-5 → `sessions_send("agent:vita:main", message)`
+| Input do usuário | Ação do Janus |
+|---|---|
+| CRUD claro ("terminei X", "adiciona Y", "cancela Z") | `vita_quick_crud({message})` |
+| Status/pendências ("tem algo vencendo?") | `vita_check_alerts({})` |
+| Planejamento, análise, priorização, brain dump, 1-3-5, tudo que exige julgamento | `sessions_send("agent:vita:main", message)` |
 
-### Fallback de `vita_quick_crud`
+### Resposta de `vita_quick_crud`
 
-- `handled: true` → devolver `reply` direto ao usuário
-- `handled: false, reason: intent_complex` → `sessions_send` com mensagem original
-- `handled: false, reason: duplicate_warning` → `sessions_send` com warning junto (Vita resolve)
-- `handled: false, reason: cli_error` → `sessions_send` com mensagem + nota do erro
+| Retorno | Ação |
+|---|---|
+| `handled: true` | Devolver `reply` direto ao usuário |
+| `handled: false, reason: intent_complex` | `sessions_send` com mensagem original |
+| `handled: false, reason: duplicate_warning` | `sessions_send` com warning junto (Vita resolve) |
+| `handled: false, reason: cli_error` | `sessions_send` com mensagem + nota do erro |
 
 ### Proativo
 
-Janela apropriada (ocioso, transição, pedido de status) → `vita_check_alerts()` direto (barato). Julgamento além de ler alertas → `sessions_send`.
+Janela apropriada (ocioso, transição, pedido de status) → `vita_check_alerts()` direto (barato). Se precisar mais que ler alertas → `sessions_send`.
 
-### Nudges proativos da Vita
+### Nudges entrantes da Vita
 
-Mensagens entrantes com prefixo `[VITA:NUDGE]` são alertas proativos emitidos pelo heartbeat da Vita, **não fala do usuário**. Tratamento:
+Mensagens com prefixo `[VITA:NUDGE|id=nudge_xxx] ...` são alertas proativos, **não fala do usuário**. Tratamento:
 
-1. Não responder perguntando de volta — reformular como aviso ao usuário.
-2. Não ecoar o prefixo.
-3. Ex: entrada `[VITA:NUDGE] Buscar remédio atrasado há 3 dias` → resposta `"🌿 Vita alertou: buscar remédio tá atrasado há 3 dias. Atacar hoje?"`.
-4. Se chegar em janela inconveniente (madrugada, reunião conhecida), pode agrupar ou adiar — usar julgamento.
+1. Não ecoar o prefixo nem o id.
+2. Reformular como aviso ao usuário, não pergunta de volta.
+3. Exemplo: `[VITA:NUDGE|id=nudge_abcd1234] Buscar remédio atrasado há 3 dias` → `"🌿 Vita alertou: buscar remédio tá atrasado há 3 dias. Atacar hoje?"`.
+4. Janela inconveniente (madrugada, reunião conhecida) → pode agrupar ou adiar. Usar julgamento.
 
-### Instrumentação de nudges (v2.16.0, spec §11)
+**Após emitir, registrar delivery:**
 
-Todo nudge que chega tem um `nudge_id` extraível do payload (`[VITA:NUDGE|id=nudge_abcd1234] ...`). Quando Janus emite pro usuário:
+| Resultado | Comando |
+|---|---|
+| Enviou | `cli nudge-delivery --nudge-id <id> --status success --data-dir <vita-data>` |
+| Falhou | `cli nudge-delivery --nudge-id <id> --status failed --data-dir <vita-data>` |
+| Agrupou/adiou | `cli nudge-delivery --nudge-id <id> --status skipped --data-dir <vita-data>` |
 
-1. **Após envio bem-sucedido:** `cli nudge-delivery --nudge-id <id> --status success --data-dir <vita-data>` (via Vita main session ou exec direto se permitido).
-2. **Após falha de envio:** mesmo comando com `--status failed`.
-3. **Se decidir agrupar/adiar e não emitir:** `--status skipped`.
+**Quando o usuário responder:**
 
-Quando usuário responde:
+| Fala do usuário | `--response-kind` |
+|---|---|
+| "fiz / foi / agora" | `agora` |
+| "depois / mais tarde" | `depois` |
+| "muda pra X / replaneja" | `replanejar` |
 
-- "fiz agora / foi" → `cli nudges-ack --nudge-id <id> --source telegram_user --response-kind agora`
-- "depois / mais tarde" → `--response-kind depois`
-- "muda pra X / replaneja" → `--response-kind replanejar`
-- Sem resposta em 24h / trata como passa-quieto → ledger registra `ignorado` implicitamente via `ignored_rate` no KPI (não precisa ack ativo).
+```
+cli nudges-ack --nudge-id <id> --source telegram_user --response-kind <kind>
+```
 
-KPIs consolidados via `cli nudge-kpis --window-days 7 --data-dir <vita-data>` — use em retro semanal pra ver taxa de ação/ignorado por alert_type e por variante A/B.
+Sem resposta em 24h conta como `ignorado` implícito — não precisa ack ativo.
+
+Retro semanal: `cli nudge-kpis --window-days 7 --data-dir <vita-data>`.
 
 ### Proibido
 
-- `sessions_spawn` pra Vita (nem como fallback — se main cair, reportar ao usuário)
-- Editar ledger/output da skill direto
-- `exec` de `cli.py` no Janus (usa o plugin)
+- `sessions_spawn` pra Vita (nem como fallback).
+- Editar ledger/output da skill direto.
+- `exec` de `cli.py` dentro do Janus — usa o plugin.
 
 <!-- END vita-task-manager -->
 
