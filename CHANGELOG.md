@@ -41,7 +41,7 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
   como "rotina perdida (era HH:MM)" em nudges agrupados.
 
 ### Contexto
-- Sétima fase do roadmap `docs/roadmap-tdah-evidence.md`. Opt-in é
+- Sétima fase do roadmap evidence-based TDAH (ver `ROADMAP.md`). Opt-in é
   **não-negociável** (spec §14.4): alertar pra toda rotina geraria
   fadiga e viraria ruído. A marca `!nudge` faz o usuário declarar
   que perder aquela rotina tem custo — e só então a Vita intervém.
@@ -85,7 +85,7 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
   como "vence em ~Nh (HH:MM)" em nudges agrupados.
 
 ### Contexto
-- Sexta fase do roadmap `docs/roadmap-tdah-evidence.md`. Custo
+- Sexta fase do roadmap evidence-based TDAH (ver `ROADMAP.md`). Custo
   maior que alertas anteriores porque exigiu evoluir o modelo
   (`Task.due_time`), mas sem breaking change: ledger antigo
   continua legível, CLI sem `--due-time` continua funcional.
@@ -133,7 +133,7 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
   opcional). Cada um append-only.
 
 ### Contexto
-- Quinta fase do roadmap `docs/roadmap-tdah-evidence.md`. Fecha o
+- Quinta fase do roadmap evidence-based TDAH (ver `ROADMAP.md`). Fecha o
   loop: as fases anteriores adicionaram *detecção* de alertas
   (`first_touch`, `off_pace`); v2.16.0 adiciona *medição* — sem
   isso, A/B de copy e análise de eficácia ficam no chute.
@@ -172,7 +172,7 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
   "ritmo baixo (N/M, esperado ~E)" em nudges agrupados.
 
 ### Contexto
-- Quarta fase do roadmap `docs/roadmap-tdah-evidence.md`. Destravou
+- Quarta fase do roadmap evidence-based TDAH (ver `ROADMAP.md`). Destravou
   cedo porque o modelo (`Task.progress_done`/`progress_total`) já
   existia — custo menor do que a ordem spec sugeria.
 - Task sem `progress_total` nunca gera off_pace (evita falso positivo
@@ -209,7 +209,7 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
   o alerta primário do grupo é `first_touch`.
 
 ### Contexto
-- Terceira fase do roadmap `docs/roadmap-tdah-evidence.md`. Spec §5.1
+- Terceira fase do roadmap evidence-based TDAH (ver `ROADMAP.md`). Spec §5.1
   é o alvo nº1 (dificuldade de iniciação — maior fonte de procrastinação
   em TDAH). Custo médio, valor alto.
 - Qualquer `ledger-start / ledger-progress / ledger-update` já atualiza
@@ -258,7 +258,7 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
   centralizada fora do engine).
 
 ### Contexto
-- Segunda fase do roadmap `docs/roadmap-tdah-evidence.md`. Destrava
+- Segunda fase do roadmap evidence-based TDAH (ver `ROADMAP.md`). Destrava
   experimentação de A/B via `copy_variant` sem mudança de infra de
   emissão — mensura em v2.16.0 (KPIs).
 - Módulo batizado `nudge_copy` e não `copy` pra evitar colisão com
@@ -302,7 +302,7 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
   agrupamento e limite por tick.
 
 ### Contexto
-- Primeira fase do roadmap `docs/roadmap-tdah-evidence.md`. Destrava
+- Primeira fase do roadmap evidence-based TDAH (ver `ROADMAP.md`). Destrava
   experimentação comportamental: mudar threshold agora é ajustar JSON,
   não editar Python.
 - 4 testes novos em `test_core.py` (total: 78 testes passando):

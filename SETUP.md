@@ -1,5 +1,7 @@
 # Setup
 
+**Versão:** 2.18.0
+
 Instruções pra IA instalar ou atualizar a skill. Não é usuário.
 
 ## Detectar modo

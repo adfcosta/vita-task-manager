@@ -379,7 +379,7 @@ A flag `VITA_TEST_MODE=1` ativa proteção anti-contaminação: se algum teste t
 - **Instrumentação completa** — delivery + ack + KPIs com `response_kind` (agora/depois/replanejar).
 - **Opt-in de rotina** (`!nudge`) — rotina entra em `missed_routine` só quando marcada explicitamente.
 
-Roadmap detalhado e status versão a versão em [`docs/roadmap-tdah-evidence.md`](docs/roadmap-tdah-evidence.md).
+Roadmap detalhado e status versão a versão em [`ROADMAP.md`](ROADMAP.md).
 
 ---
 
@@ -421,7 +421,6 @@ Roadmap detalhado e status versão a versão em [`docs/roadmap-tdah-evidence.md`
 - [`SKILL.md`](SKILL.md) — instruções operacionais diretas pra IA (runtime da Vita).
 - [`DIRECTORY_STRUCTURE.md`](DIRECTORY_STRUCTURE.md) — árvore + governança por arquivo.
 - [`CHANGELOG.md`](CHANGELOG.md) — histórico de versões.
-- [`ROADMAP.md`](ROADMAP.md) — planejamento de longo prazo.
+- [`ROADMAP.md`](ROADMAP.md) — retrospectiva v2.2–v2.18, descope de v2.19 e plano v3.0+.
 - [`WHATSAPP_LAYOUT.md`](WHATSAPP_LAYOUT.md) — referência do formato de render.
-- [`docs/roadmap-tdah-evidence.md`](docs/roadmap-tdah-evidence.md) — plano orientado à spec TDAH (v1.0), status por versão.
 - [`patches/`](patches/) — blocos que a skill enxerta nos AGENTS vivos da Vita e do Janus.

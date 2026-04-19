@@ -1,182 +1,125 @@
 # Roadmap — Vita Task Manager
 
-Documento de implementações futuras organizado por versão.
+**Versão atual da skill:** 2.18.0
+**Última revisão:** 2026-04-19
+**Spec base:** "Vita orientada por evidências para suporte operacional ao TDAH" (v1.0, recorte não-farmacológico).
+
+Documento único consolidando retrospectiva (o que foi entregue), decisões de descope e planos futuros.
 
 ---
 
-## ✅ v2.2 — Scoring e 1-3-5 (IMPLEMENTADO)
+## Retrospectiva — v2.2 → v2.18
 
-**Objetivo:** Implementar algoritmo de priorização inteligente baseado no método 1-3-5.
+Duas ondas de trabalho: primeira (v2.2–v2.5) estruturou priorização, WIP e resiliência do ledger. Segunda (v2.12–v2.18) reorientou a skill para a spec TDAH v1.0 — heartbeat proativo com copy acionável, A/B determinístico, KPIs instrumentados e tipos de alerta orientados a evidência.
 
-### 2.2.1 Campos de Scoring
+### Onda 1 — fundações (v2.2 → v2.5) ✅
 
-| Aspecto | Descrição | Dependências | Complexidade | Benefício TDAH |
-|---------|-----------|--------------|--------------|----------------|
-| Campos de complexidade | `complexity` (1-10), `complexity_source`, `confidence` | Migração de dados existentes | Média | Evita escolher tarefas grandes demais sem perceber |
-| Campos de idade | `first_added_date`, `postpone_count`, `last_postponed_at` | Ledger ops update | Baixa | Tarefas "fantasma" não são esquecidas |
-| Campos de energia | `energy_required`, `energy_predicted` | Inferência por IA ou palavras-chave | Média | Match entre energia disponível e tarefa |
+| Versão | Entregue |
+|---|---|
+| v2.2 | Scoring 1-3-5 com campos de complexidade, idade e energia; fórmula ponderada (U 35% + C 25% + A 20% − P 20%); categorização big/medium/small; CLI `suggest-daily` e `explain-task`. |
+| v2.3 | WIP limit (default 2) com bloqueio explícito; estados visuais no render; feedback contextual com triggers estendidos. |
+| v2.4/2.5 | `ledger-update` in-place; detecção de duplicatas por intersecção de palavras; word weights em 3 fatores; rollover em qualquer dia; `ledger-status` para diagnóstico; 42 testes automatizados. |
 
-### 2.2.2 Fórmula de Score
+### Onda 2 — evidence-based TDAH (v2.12 → v2.18) ✅
 
-| Aspecto | Descrição | Dependências | Complexidade | Benefício TDAH |
-|---------|-----------|--------------|--------------|----------------|
-| Cálculo de urgência | Baseado em `due_date` (escala 0-100) | v2.2.1 | Baixa | Prazos curtos sobem na fila |
-| Cálculo de complexidade | Invertida: complexa = menor score | v2.2.1 | Baixa | Quick wins aparecem primeiro |
-| Cálculo de idade | Dias na lista (escala 0-100) | v2.2.1 | Baixa | Tarefas antigas não somem |
-| Penalidade de adiamento | Exponencial por `postpone_count` | v2.2.1 | Baixa | Combate procrastinação crônica |
-| Score final | Média ponderada: U(35%) + C(25%) + A(20%) - P(20%) | Todos acima | Média | Decisão objetiva, não emocional |
+Sequência originalmente planejada (spec §17): `thresholds → KPIs → first_touch → due_soon → off_pace`. Duas descobertas mudaram a ordem:
 
-### 2.2.3 Algoritmo 1-3-5
+1. `Task.due_date` só guardava data; `due_soon` com `hours_left` exigia evoluir o modelo → subiu custo.
+2. `Task.progress_done/total` **já existiam** → `off_pace` ficou barato.
 
-| Aspecto | Descrição | Dependências | Complexidade | Benefício TDAH |
-|---------|-----------|--------------|--------------|----------------|
-| Categorização por tamanho | Big (7-10), Medium (4-6), Small (1-3) | v2.2.2 | Baixa | Limita escolhas do dia |
-| Distribuição 1-3-5 | 1 big, 3 medium, 5 small por dia | v2.2.2 | Média | Evita sobrecarga de decisão |
-| Promoção/demote automático | Preenche slots vazios com próximas melhores | v2.2.2 | Média | Sempre tem 9 tarefas sugeridas |
-| Resolução de conflitos | Detecta urgente+complexa, muitas adiadas | v2.2.2 | Média | Alerta sobre padrões problemáticos |
+Resultado: **copy antecipa**, **off_pace antecipa**, **due_soon adia**, **KPIs adiam** (dependem de `copy_variant` pra medir A/B).
 
-### 2.2.4 Inferência de Complexidade
+| Versão | Feature | Custo | Valor TDAH | Status |
+|---|---|---|---|---|
+| v2.12.0 | Thresholds config + `max_nudges_per_tick` + agrupamento por task | baixo | médio (tuning) | ✅ |
+| v2.13.0 | Copy library refatorada + `copy_variant` + `cooldown_applied` | baixo | alto (linguagem acionável) | ✅ |
+| v2.14.0 | `first_touch` (spec §5.1, alvo nº1) | médio | alto | ✅ |
+| v2.15.0 | `copy_variant` A/B determinístico (hash de `task_id:alert_type`) | médio | alto | ✅ (ver nota) |
+| v2.16.0 | KPIs + instrumentação (`nudge-delivery`, `nudge-kpis`, `response_kind`) | médio | alto (mensuração) | ✅ |
+| v2.17.0 | `due_soon` com janela horária (requer `due_time` no model) | alto | alto | ✅ |
+| v2.18.0 | `missed_routine` opt-in (sigil `!nudge`) + `off_pace` | médio | médio/alto | ✅ |
 
-| Aspecto | Descrição | Dependências | Complexidade | Benefício TDAH |
-|---------|-----------|--------------|--------------|----------------|
-| Prompt de IA | Sistema prompt para avaliar complexidade | LLM disponível | Média | Classificação consistente |
-| Fallback por palavras-chave | Regex para casos sem IA | v2.2.1 | Baixa | Funciona offline |
-| Cache de inferências | Evita reprocessar mesmas tasks | v2.2.1 | Baixa | Performance |
+> **Nota v2.15/v2.18:** `off_pace` (originalmente previsto em v2.15.0) aterrissou em v2.18.0 porque `copy_variant` A/B determinístico precedeu pra destravar KPIs em v2.16.0. Cobertura final inalterada — só mudou a tag onde cada parte aterrissou.
 
-### 2.2.5 CLI e Output
+### Dependências realizadas
 
-| Aspecto | Descrição | Dependências | Complexidade | Benefício TDAH |
-|---------|-----------|--------------|--------------|----------------|
-| Comando `suggest-135` | Retorna JSON com sugestões do dia | v2.2.3 | Média | Interface clara |
-| Render com seção 1-3-5 | Visual separado por categoria | v2.2.3 | Baixa | Foco visual organizado |
-| Explicação do score | Campo `why` em cada sugestão | v2.2.2 | Baixa | Transparência reduz ansiedade |
-
----
-
-## ✅ v2.3 — WIP Limit e Feedback Visual (IMPLEMENTADO)
-
-**Objetivo:** Evitar multitarefa e melhorar feedback para TDAH.
-
-### 2.3.1 WIP Limit
-
-| Aspecto | Descrição | Dependências | Complexidade | Benefício TDAH |
-|---------|-----------|--------------|--------------|----------------|
-| Configuração de limites | `wip_limit` (default: 2) | Config system | Baixa | Evita iniciar muitas coisas |
-| Bloqueio de início | Alerta se tentar iniciar > limit | v2.3.1 | Baixa | Força terminar antes de nova |
-| Fila de "próximas" | Tasks esperando para iniciar | v2.3.1 | Média | Visibilidade do que vem depois |
-
-### 2.3.2 Estados Visuais
-
-| Aspecto | Descrição | Dependências | Complexidade | Benefício TDAH |
-|---------|-----------|--------------|--------------|----------------|
-| Emojis de estado | 🆕 ⏳ ✅ ❌ para status | Render update | Baixa | Reconhecimento rápido |
-| Barra de progresso | Visual para % completo | Render update | Baixa | Feedback de progresso |
-| Cor por idade | Tons de vermelho para tasks antigas | Render update | Baixa | Alerta visual de "fantasmas" |
-
-### 2.3.3 Feedback Contextual
-
-| Aspecto | Descrição | Dependências | Complexidade | Benefício TDAH |
-|---------|-----------|--------------|--------------|----------------|
-| Triggers estendidos | Além de morning/crud/time: wip_exceeded, stale_task | Feedback logic | Média | Feedback no momento certo |
-| Mensagens TDAH-específicas | "Você tem 3 tarefas em progresso — termine uma primeiro" | Copywriting | Baixa | Linguagem empática |
-| Celebração de vitórias | Feedback positivo ao completar | Feedback logic | Baixa | Reforço positivo |
+```
+v2.12 (config infra) ─► v2.13 (copy + variant) ─┬─► v2.14 (first_touch) ─┐
+                                                │                         │
+                                                └─► v2.15 (A/B hash) ─────┤
+                                                                          ▼
+                                                               v2.16 (KPIs + ack)
+                                                                          │
+                                                                          ▼
+                                                               v2.17 (due_soon hora)
+                                                                          │
+                                                                          ▼
+                                                       v2.18 (missed_routine + off_pace)
+```
 
 ---
 
-## ✅ v2.4/2.5 — Detecção de Duplicatas, Rollover e Diagnóstico (IMPLEMENTADO)
+## Descope — v2.19.0 (Guardrail de segurança) ❌
 
-**Objetivo:** Evitar re-adição de tasks por padrão TDAH e melhorar resiliência do sistema.
+**Decisão (2026-04-19):** não implementar nesta skill.
 
-- ✅ `ledger-update` — atualização in-place de tasks existentes
-- ✅ Detecção de duplicatas por intersecção de palavras no `ledger-add`
-- ✅ Word weights com 3 fatores (distintividade x evitação x resolução)
-- ✅ `execution-history` gera `word_weights.json` como subproduto
-- ✅ Rollover funciona em qualquer dia da semana (não só domingo)
-- ✅ `ledger-status` para diagnóstico do ledger
-- ✅ Feedback do dia renderizado no formato WhatsApp
-- ✅ 42 testes automatizados
+**Motivo:** safety de crise exige camada separada — roteamento humano, hotlines, protocolos clínicos — que não se beneficia de acoplamento com ledger de produtividade. O risco de falso negativo num detector keyword-based embutido aqui é mais perigoso do que não ter detector. Se a decisão voltar, trilha da spec §14.3 continua válida: seção obrigatória em AGENTS ("saia do modo tasks, encaminhe humano") + `scripts/safety.py` opcional com `safety-check` + `safety-routing.json` com destino humano configurado.
 
 ---
 
-## v3.0 — Integrações
+## Futuro — v3.0+
 
-**Objetivo:** Conectar com ferramentas externas e expandir funcionalidades.
+Objetivo: integrar com ferramentas externas e expandir modalidade.
 
-### 3.0.1 Timer Integrado
+### Timer integrado
 
-| Aspecto | Descrição | Dependências | Complexidade | Benefício TDAH |
-|---------|-----------|--------------|--------------|----------------|
-| Pomodoro flexível | 10/3, 15/5, 20/5, 25/5 | Timer backend | Média | Adapta ao ciclo de foco |
-| Comando `start-timer` | Inicia timer vinculado a task | v3.0.1 | Média | Foco em uma coisa |
-| Auto-log no ledger | Registra início/fim de sessões | v3.0.1 | Média | Histórico de produtividade |
-| Alerta de pausa | Notifica quando descansar | v3.0.1 | Média | Evita burnout |
+Pomodoro flexível (10/3, 15/5, 20/5, 25/5) acoplado a `ledger-start`. Auto-log de início/fim de sessões no ledger. Alerta de pausa pra evitar burnout. Custo: médio. Benefício TDAH: foco em uma coisa, ciclo adaptável.
 
-### 3.0.2 Body Doubling
+### Body doubling
 
-| Aspecto | Descrição | Dependências | Complexidade | Benefício TDAH |
-|---------|-----------|--------------|--------------|----------------|
-| Modo foco compartilhado | Sessão síncrona com outra pessoa | Integração externa | Alta | Accountability externa |
-| Notificação de início/fim | Alerta parceiro de body doubling | v3.0.2 | Média | Compromisso social |
-| Log de sessões | Registra participação | v3.0.2 | Baixa | Rastreabilidade |
+Sessão síncrona com outra pessoa; notificação de início/fim; log de participação. Custo: alto (integração externa). Benefício TDAH: accountability social.
 
-### 3.0.3 Notificações
+### Notificações ampliadas
 
-| Aspecto | Descrição | Dependências | Complexidade | Benefício TDAH |
-|---------|-----------|--------------|--------------|----------------|
-| Lembrete de próxima ação | Alerta quando tarefa próxima do prazo | Scheduler | Média | Não esquece deadlines |
-| Lembrete de brain dump | "Esvazie a cabeça" períodico | Scheduler | Média | Prevenção de sobrecarga |
-| Lembrete de review | Fim de dia: o que foi feito? | Scheduler | Média | Fechamento mental |
+Lembrete de próxima ação perto do prazo; "esvazie a cabeça" periódico; review de fim de dia. Custo: médio. Benefício TDAH: fechamento mental, prevenção de sobrecarga.
 
-### 3.0.4 Export/Import
+### Export / Import
 
-| Aspecto | Descrição | Dependências | Complexidade | Benefício TDAH |
-|---------|-----------|--------------|--------------|----------------|
-| Export CSV | Para análise externa | Formatter | Baixa | Dados portáteis |
-| Export JSON completo | Backup portátil | Ledger | Baixa | Portabilidade |
-| Import de outras ferramentas | Todoist, Notion, etc | Parsers | Alta | Migração fácil |
+CSV, JSON completo, importar de Todoist/Notion. Custo: baixo a alto conforme destino. Benefício TDAH: portabilidade, migração fácil.
 
 ---
 
-## Backlog — Ideias Sem Prioridade
-
-Ideias interessantes mas sem data definida.
+## Backlog — ideias sem prioridade
 
 | Ideia | Descrição | Complexidade | Benefício TDAH |
-|-------|-----------|--------------|----------------|
-| **Gamificação** | Streaks, pontos, níveis por conclusão | Média | Motivação extrínseca |
-| **Análise de padrões** | "Você costuma adiar tarefas de X tipo" | Alta | Autoconhecimento |
-| **Sugestão de divisão** | IA sugere como quebrar tarefa grande | Alta | Reduz paralisia |
-| **Modo hiperfoco** | Bloqueia novas tasks, foco em uma só | Baixa | Aproveita o momento |
-| **Integração calendário** | Ler/escrever em Google/Outlook Calendar | Alta | Visão unificada |
-| **Tags inteligentes** | Auto-tag por contexto (casa, trabalho, rua) | Média | Organização automática |
-| **Modo baixa energia** | Só mostra tasks de complexidade 1-3 | Baixa | Dias difíceis |
-| **Sincronização multi-device** | Ledger na nuvem | Alta | Acesso de qualquer lugar |
-| **Comandos por voz** | "Adicionar task comprar leite" | Média | Captura rápida |
-| **Relatório mensal** | Análise de produtividade | Média | Visão de longo prazo |
+|---|---|---|---|
+| Gamificação | Streaks, pontos, níveis | Média | Motivação extrínseca |
+| Análise de padrões | "Você adia tarefas de X tipo" | Alta | Autoconhecimento |
+| Sugestão de divisão | IA quebra tarefa grande | Alta | Reduz paralisia |
+| Modo hiperfoco | Bloqueia novas tasks, foco em uma | Baixa | Aproveita momento |
+| Integração calendário | Google/Outlook Calendar | Alta | Visão unificada |
+| Tags inteligentes | Auto-tag por contexto | Média | Organização automática |
+| Modo baixa energia | Só tasks complexidade 1-3 | Baixa | Dias difíceis |
+| Multi-device | Ledger na nuvem | Alta | Acesso de qualquer lugar |
+| Comandos por voz | "Adicionar comprar leite" | Média | Captura rápida |
+| Relatório mensal | Análise de produtividade | Média | Longo prazo |
 
 ---
 
-## Critérios de Priorização
+## Critérios de priorização
 
 Para decidir o que entra em cada versão:
 
-1. **Impacto TDAH** — Quanto ajuda no dia a dia?
-2. **Complexidade** — Quanto esforço para implementar?
-3. **Dependências** — O que precisa estar pronto antes?
-4. **Custo cognitivo** — Adiciona complexidade de uso?
+1. **Impacto TDAH** — quanto ajuda no dia a dia?
+2. **Complexidade** — quanto esforço pra implementar?
+3. **Dependências** — o que precisa estar pronto antes?
+4. **Custo cognitivo** — adiciona complexidade de uso?
 
-**Princípio:** Preferir features que *reduzem* decisões do usuário, não aumentam.
-
----
-
-## Notas de Implementação
-
-- **v2.2** depende da especificação completa em `vita-scoring-system-spec.md`
-- **v2.3** pode ser paralelizado parcialmente com v2.2
-- **v3.0** requer decisões arquiteturais sobre integrações externas
-- **Backlog** deve ser revisado a cada minor release
+**Princípio:** preferir features que *reduzem* decisões do usuário, não aumentam.
 
 ---
 
-**Atualizado:** 2026-04-13  
-**Versão do Documento:** 1.1
+## Histórico de revisões
+
+- **2026-04-18** — Draft orientado à spec TDAH v1.0 criado (`docs/roadmap-tdah-evidence.md`). Ordem ajustada: copy antecipa, off_pace antecipa, due_soon atrasa, KPIs atrasam.
+- **2026-04-19** — Onda 2 encerrada (v2.12 → v2.18 entregues). v2.19 descopada. Documento consolidado: histórico v2.2–v2.18, descope, futuro e backlog num só arquivo.
