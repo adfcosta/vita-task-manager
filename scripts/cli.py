@@ -537,6 +537,7 @@ def _build_alerts(
     first_touch_min_hours: int = 12,
     off_pace_ratio: float = 0.7,
     due_soon_window_hours: int = 4,
+    missed_routine_grace_hours: int = 1,
     now: "datetime | None" = None,
 ) -> dict[str, Any]:
     """Inspeciona o ledger e retorna alertas acionáveis (função pura, sem I/O de emit).
@@ -553,6 +554,10 @@ def _build_alerts(
     - due_soon: tasks com due_date + due_time cujo vencimento real está
       dentro da janela due_soon_window_hours — spec §5.2 (v2.17.0).
       Sem `due_time` no registro, não dispara (legacy-safe).
+    - missed_routine: task `source=rotina` com `alert_on_miss=True` e
+      status `[ ]` cujo horário esperado passou há
+      missed_routine_grace_hours+ — spec §5.7 + §14.4 (v2.18.0). Opt-in
+      via `!nudge` em rotina.md: rotinas sem o flag nunca disparam.
     """
     try:
         from .ledger import _merge_task_records, get_ledger_filename, get_week_start
@@ -706,6 +711,35 @@ def _build_alerts(
             except (ValueError, TypeError):
                 pass
 
+        # Missed routine (spec §5.7 + §14.4, v2.18.0): rotina opt-in com
+        # horário esperado (armazenado em `context` pelo sync_fixed_agenda)
+        # que passou da janela de graça sem ser iniciada. Opt-in estrito —
+        # rotinas sem `alert_on_miss` nunca disparam.
+        if (
+            task.get("source") == "rotina"
+            and task.get("alert_on_miss")
+            and status == "[ ]"
+        ):
+            expected_at = task.get("context")  # "HH:MM" ou "HH:MM – HH:MM"
+            if expected_at:
+                # Extrai horário de início se for range
+                start_str = expected_at.split("–")[0].split("-")[0].strip()
+                try:
+                    sh, sm = map(int, start_str.split(":"))
+                    expected_dt = datetime.combine(today, _time(hour=sh, minute=sm))
+                    hours_late = (now - expected_dt).total_seconds() / 3600
+                    if hours_late >= missed_routine_grace_hours:
+                        alerts.append({
+                            "type": "missed_routine",
+                            "task_id": task_id,
+                            "description": desc,
+                            "expected_at": start_str,
+                            "hours_late": round(hours_late, 1),
+                            "priority": task.get("priority"),
+                        })
+                except (ValueError, TypeError):
+                    pass
+
         # First touch (spec §5.1): task em [ ] criada há N+ horas sem nenhum toque.
         # "Toque" = qualquer updated_at registrado (ledger-start/progress/update
         # sempre atualizam updated_at). Sem updated_at = nunca foi mexida.
@@ -735,6 +769,7 @@ def _build_alerts(
         "first_touch": len([a for a in alerts if a["type"] == "first_touch"]),
         "off_pace": len([a for a in alerts if a["type"] == "off_pace"]),
         "due_soon": len([a for a in alerts if a["type"] == "due_soon"]),
+        "missed_routine": len([a for a in alerts if a["type"] == "missed_routine"]),
     }
 
     return {
@@ -1116,6 +1151,7 @@ def cmd_heartbeat_tick(args) -> int:
     first_touch_min_hours = thresholds.get("first_touch_min_hours", 12)
     off_pace_ratio = thresholds.get("off_pace_ratio", 0.7)
     due_soon_window_hours = thresholds.get("due_soon_window_hours", 4)
+    missed_routine_grace_hours = thresholds.get("missed_routine_grace_hours", 1)
 
     alerts_result = _build_alerts(
         data_dir,
@@ -1124,6 +1160,7 @@ def cmd_heartbeat_tick(args) -> int:
         first_touch_min_hours=first_touch_min_hours,
         off_pace_ratio=off_pace_ratio,
         due_soon_window_hours=due_soon_window_hours,
+        missed_routine_grace_hours=missed_routine_grace_hours,
     )
     heartbeat_result = build_heartbeat_nudges(
         data_dir=data_dir,

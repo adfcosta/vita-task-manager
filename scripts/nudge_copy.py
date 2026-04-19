@@ -45,7 +45,10 @@ COPY_LIBRARY: dict[str, dict[str, str]] = {
         "A": '🌿 "{description}" vence em ~{hours_left}h ({due_time}). Qual ação mínima tranca isso agora?',
         "B": '🌿 Faltam ~{hours_left}h pra "{description}" (prazo {due_time}). Um passo curto já garante entrega?',
     },
-    # missed_routine entra em versão futura (v2.18).
+    "missed_routine": {
+        "A": '🌿 A rotina "{description}" ficou pra trás (esperada {expected_at}). Quer fazer a versão mínima agora?',
+        "B": '🌿 "{description}" não rodou hoje (era pra {expected_at}). Mesmo a versão reduzida ajuda — topa 5min?',
+    },
 }
 
 VARIANTS: tuple[str, ...] = ("A", "B")
@@ -96,6 +99,8 @@ def _format_alert_part(alert: dict) -> str:
         return f"ritmo baixo ({alert.get('done_units', '?')}/{alert.get('total_units', '?')}, esperado ~{alert.get('expected_units', '?')})"
     if t == "due_soon":
         return f"vence em ~{alert.get('hours_left', '?')}h ({alert.get('due_time', '?')})"
+    if t == "missed_routine":
+        return f"rotina perdida (era {alert.get('expected_at', '?')})"
     if t == "due_today":
         return "vence hoje"
     return t or ""

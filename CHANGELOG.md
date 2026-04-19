@@ -5,6 +5,50 @@ Todas as mudanças notáveis desta skill serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [2.18.0] - 2026-04-19
+
+### Adicionado
+- **Alerta `missed_routine` opt-in (spec TDAH §5.7 + §14.4):** rotina
+  marcada com `!nudge` em `input/rotina.md` que fica em `[ ]` por
+  `missed_routine_grace_hours` (default 1h) após o horário esperado
+  dispara nudge. Crítico pra rotinas com consequência real
+  (medicação, check-ins com terapeuta) sem poluir com alertas pra
+  qualquer item de rotina.
+- **Sintaxe `!nudge` em rotina.md:** sufixo na linha da tarefa ativa
+  opt-in. Ex: `- 08:00 | Tomar remédio !nudge`. `fixed_parser`
+  remove o flag da descrição e seta `alert_on_miss=True` na
+  `FixedEntry`.
+- **`FixedEntry.alert_on_miss: bool`** e campo `alert_on_miss` no
+  record de task do ledger (propagado via `sync_fixed_agenda` →
+  `add_task`).
+- **Copy library `missed_routine`:** duas variantes A/B. A enquadra
+  como "versão mínima agora"; B enfatiza que "versão reduzida ajuda
+  — topa 5min?". Linguagem não-punitiva (spec §7.2).
+- **`missed_routine_grace_hours` no config** (`thresholds`, default
+  1h). Permite apertar/relaxar sem deploy.
+
+### Mudado
+- **`SEVERITY_ORDER` insere `missed_routine: 2`** entre `blocked`
+  e `due_soon`. Rotina opt-in significa que o usuário assumiu
+  consequência — passa na frente de first_touch/stalled/off_pace.
+- **`is_critical` reconhece `missed_routine`** sempre como crítico
+  (janela já aplicada em `_build_alerts`, e opt-in é explícito).
+- **`_build_alerts` ganha `missed_routine_grace_hours`** (default 1).
+  `cmd_heartbeat_tick` lê do config e propaga.
+- **Record do nudge propaga `expected_at` e `hours_late`** quando o
+  alerta primário do grupo é `missed_routine`.
+- **`_format_alert_part` em `nudge_copy.py`** descreve missed_routine
+  como "rotina perdida (era HH:MM)" em nudges agrupados.
+
+### Contexto
+- Sétima fase do roadmap `docs/roadmap-tdah-evidence.md`. Opt-in é
+  **não-negociável** (spec §14.4): alertar pra toda rotina geraria
+  fadiga e viraria ruído. A marca `!nudge` faz o usuário declarar
+  que perder aquela rotina tem custo — e só então a Vita intervém.
+- 4 novos testes (100 no total): dispara após graça, não dispara
+  sem opt-in, não dispara dentro da graça (+ graça configurável),
+  parser lê `!nudge`.
+
 ## [2.17.0] - 2026-04-19
 
 ### Adicionado

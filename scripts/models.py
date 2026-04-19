@@ -60,6 +60,7 @@ class FixedEntry:
     recurrence: str          # "daily" | "weekly:segunda" | "weekly:quarta" etc.
     time_range: Optional[str] = None  # "19:30 – 21:30"
     priority: str = "🔴"     # compromissos fixos = alta prioridade
+    alert_on_miss: bool = False  # v2.18.0, spec §5.7/§14.4 — opt-in via "!nudge"
 
 
 @dataclass

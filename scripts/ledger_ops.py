@@ -177,6 +177,7 @@ def add_task(
     context: Optional[str] = None,
     carried_from: Optional[str] = None,
     allow_duplicate: bool = False,
+    alert_on_miss: bool = False,
 ) -> dict[str, Any]:
     """Adiciona nova task ao ledger."""
     created_date = _date_from_ddmm(today_ddmm, year)
@@ -212,6 +213,7 @@ def add_task(
         "first_added_date": created_date.isoformat(),
         "postpone_count": 0,
         "score_breakdown": {},
+        "alert_on_miss": alert_on_miss if alert_on_miss else None,
     }))
 
     result: dict[str, Any] = {
@@ -598,6 +600,7 @@ def sync_fixed_agenda(
             year=year,
             source="rotina",
             context=entry.time_range,
+            alert_on_miss=getattr(entry, "alert_on_miss", False),
         )
 
         if result["ok"]:

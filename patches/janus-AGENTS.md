@@ -34,7 +34,7 @@ Substituir tudo entre os marcadores `<!-- BEGIN vita-task-manager ... -->` e
 
 ---
 
-<!-- BEGIN vita-task-manager v2.17.0 -->
+<!-- BEGIN vita-task-manager v2.18.0 -->
 ## Sistema de Tasks (via vita-router plugin)
 
 Domínio de tasks pessoais pertence à Vita. Janus não executa — usa plugin `vita-router` ou delega.
@@ -98,7 +98,7 @@ KPIs consolidados via `cli nudge-kpis --window-days 7 --data-dir <vita-data>` �
 
 - [ ] Subseção antiga `### Sessão persistente da Vita` removida do
       `## Protocolo de Delegação` do Janus
-- [ ] Marcadores `<!-- BEGIN vita-task-manager v2.17.0 -->` e
+- [ ] Marcadores `<!-- BEGIN vita-task-manager v2.18.0 -->` e
       `<!-- END vita-task-manager -->` presentes no AGENTS vivo
 - [ ] `openclaw plugin list` mostra `vita-router` ativo
 - [ ] Rotina de sanity: mandar "terminei X" pro Janus via WhatsApp e
