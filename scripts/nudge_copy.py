@@ -37,8 +37,11 @@ COPY_LIBRARY: dict[str, dict[str, str]] = {
         "A": '🌿 Vi que "{description}" ainda não foi tocada ({hours_since_created}h). Faz só o primeiro passo: abrir e definir a próxima ação?',
         "B": '🌿 "{description}" está na fila há {hours_since_created}h sem movimento. Define em 1 linha qual o primeiro passo?',
     },
-    # due_soon, off_pace, missed_routine entram em versões futuras
-    # (v2.17, v2.15, v2.18 respectivamente).
+    "off_pace": {
+        "A": '🌿 "{description}" está em {done_units}/{total_units} — esperado ~{expected_units}. Um bloco curto hoje recoloca no trilho?',
+        "B": '🌿 Ritmo de "{description}" ficou abaixo do esperado ({done_units}/{total_units}, faltam {days_remaining}d). Quer destravar com a próxima etapa menor?',
+    },
+    # due_soon, missed_routine entram em versões futuras (v2.17, v2.18).
 }
 
 VARIANTS: tuple[str, ...] = ("A", "B")
@@ -85,6 +88,8 @@ def _format_alert_part(alert: dict) -> str:
         return f"adiada {alert.get('postpone_count', '?')}x (bloqueio)"
     if t == "first_touch":
         return f"sem toque há {alert.get('hours_since_created', '?')}h"
+    if t == "off_pace":
+        return f"ritmo baixo ({alert.get('done_units', '?')}/{alert.get('total_units', '?')}, esperado ~{alert.get('expected_units', '?')})"
     if t == "due_today":
         return "vence hoje"
     return t or ""

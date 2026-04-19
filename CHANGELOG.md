@@ -5,6 +5,49 @@ Todas as mudanças notáveis desta skill serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [2.15.0] - 2026-04-18
+
+### Adicionado
+- **Alerta `off_pace` (spec TDAH §5.6):** task com `progress_done`,
+  `progress_total` e `due_date` futuro cujo ritmo está abaixo de
+  `off_pace_ratio * expected` dispara nudge preventivo. Ataca fiasco
+  silencioso — task andando devagar que viraria overdue sem aviso.
+  Fórmula: `expected = (days_passed / total_days) * total`; dispara
+  quando `done < expected * off_pace_ratio`.
+- **Copy library estende pra `off_pace`:** duas variantes A/B. A foca
+  no gap ("X/Y — esperado ~Z, bloco curto hoje recoloca no trilho?");
+  B foca no prazo ("faltam Nd, próxima etapa menor?").
+- **`off_pace_ratio` no config** (`thresholds.off_pace_ratio`, default
+  0.7). Ratio menor = mais permissivo (menos alertas); maior = mais
+  alerta precoce.
+
+### Mudado
+- **`_build_alerts` ganha parâmetro `off_pace_ratio`** (default 0.7).
+  `cmd_heartbeat_tick` lê do config e propaga.
+- **`is_critical` reconhece `off_pace`** sempre como crítico: o
+  threshold de ratio já foi aplicado na construção do alerta.
+- **`SEVERITY_ORDER` insere `off_pace: 4`** entre `stalled: 3` e
+  `due_today: 5`. Preventivo, mas urgente o suficiente pra ranquear
+  antes de vencimentos do dia.
+- **Record do nudge inclui `done_units`, `total_units`,
+  `expected_units`, `days_remaining`** quando o alerta primário do
+  grupo é `off_pace`.
+- **`_format_alert_part` em `nudge_copy.py`** descreve off_pace como
+  "ritmo baixo (N/M, esperado ~E)" em nudges agrupados.
+
+### Contexto
+- Quarta fase do roadmap `docs/roadmap-tdah-evidence.md`. Destravou
+  cedo porque o modelo (`Task.progress_done`/`progress_total`) já
+  existia — custo menor do que a ordem spec sugeria.
+- Task sem `progress_total` nunca gera off_pace (evita falso positivo
+  em tasks sem ritmo definido).
+- Só avalia tasks abertas (`[ ]` ou `[~]`) com `days_passed > 0` e
+  `due_date >= today` — task do dia ou vencida não entra nessa avaliação
+  preventiva.
+- 3 testes novos (total: 87 passando): `test_off_pace_alert_fires_below_ratio`,
+  `test_off_pace_ignored_on_pace`, `test_off_pace_requires_progress_fields`.
+  `test_copy_renders_all_library_types` estendido com fixture de off_pace.
+
 ## [2.14.0] - 2026-04-18
 
 ### Adicionado
