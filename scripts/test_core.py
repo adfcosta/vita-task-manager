@@ -2241,10 +2241,14 @@ def test_heartbeat_tick_critical_overdue():
         assert result["nudges_new"] == 1
         assert result["suppressed_by_cooldown"] == 0
         assert "Task atrasada" in result["emit_text"]
-        assert "3 dias" in result["emit_text"]
+        # v2.13.0: copy library usa "{days_overdue}d" (curto), não "N dias"
+        assert "3d" in result["emit_text"]
         assert result["nudges_records"][0]["task_id"] == "t1"
         # v2.12.0: record migrou de alert_type (str) → alert_types (list)
         assert result["nudges_records"][0]["alert_types"] == ["overdue"]
+        # v2.13.0: record ganha copy_variant e cooldown_applied
+        assert result["nudges_records"][0]["copy_variant"] in ("A", "B")
+        assert result["nudges_records"][0]["cooldown_applied"] is True
         # Persistência
         nudges_path = data_dir / "proactive-nudges.jsonl"
         assert nudges_path.exists()
@@ -2434,6 +2438,66 @@ def test_heartbeat_cooldown_covers_group():
         print("✓ test_heartbeat_cooldown_covers_group")
 
 
+def test_copy_variant_deterministic():
+    """v2.13.0: mesma task+alert_type sempre retorna mesma variante."""
+    from nudge_copy import pick_variant, VARIANTS
+
+    v1 = pick_variant("task_abc", "overdue")
+    v2 = pick_variant("task_abc", "overdue")
+    v3 = pick_variant("task_abc", "stalled")  # diferente alert_type, pode mudar
+    assert v1 == v2
+    assert v1 in VARIANTS
+    assert v3 in VARIANTS
+    print("✓ test_copy_variant_deterministic")
+
+
+def test_copy_renders_all_library_types():
+    """v2.13.0: COPY_LIBRARY formata sem KeyError com campos esperados do alerta."""
+    from nudge_copy import COPY_LIBRARY, render_nudge
+
+    fixtures = {
+        "overdue": {"type": "overdue", "description": "X", "days_overdue": 3, "task_id": "t1"},
+        "stalled": {"type": "stalled", "description": "X", "hours_since_update": 48, "task_id": "t1"},
+        "blocked": {"type": "blocked", "description": "X", "postpone_count": 3, "task_id": "t1"},
+    }
+    assert set(COPY_LIBRARY.keys()) == set(fixtures.keys()), "library deve cobrir todos fixtures"
+    for t, alert in fixtures.items():
+        for variant in ("A", "B"):
+            text = render_nudge(alert, variant)
+            assert text, f"{t} variant {variant} retornou vazio"
+            assert "X" in text, f"{t} variant {variant} não renderiza description"
+            assert "🌿" in text, f"{t} variant {variant} não tem emoji"
+    print("✓ test_copy_renders_all_library_types")
+
+
+def test_heartbeat_emit_text_uses_copy_library():
+    """v2.13.0: emit_text single-nudge usa copy completo com convite à ação."""
+    from ledger import get_ledger_filename
+    from heartbeat import build_heartbeat_nudges
+    from cli import _build_alerts
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        record = _create_test_ledger_record("t1", "Comprar remédio", "[ ]",
+                                             created_at="2026-04-10T09:00:00")
+        record["due_date"] = "10/04"
+        _write_jsonl(ledger_file, [record])
+
+        alerts_res = _build_alerts(data_dir, today, 2026)
+        result = build_heartbeat_nudges(data_dir=data_dir, alerts=alerts_res["alerts"])
+        assert result["nudges_new"] == 1
+        emit = result["emit_text"]
+        # Copy spec §7.3: detecção + convite a menor ação
+        assert "Comprar remédio" in emit
+        assert emit.startswith("🌿")
+        assert emit.endswith("?"), "copy deve terminar com convite (pergunta)"
+        # Não usa mais o wrapper antigo 'Vita alertou: "..."'
+        assert "Vita alertou:" not in emit
+        print("✓ test_heartbeat_emit_text_uses_copy_library")
+
+
 def test_nudges_pending_and_ack():
     """get_pending_nudges retorna não-acked; ack_nudge remove da pending."""
     from ledger import get_ledger_filename
@@ -2545,6 +2609,9 @@ def run_all_tests():
     test_heartbeat_max_nudges_per_tick()
     test_heartbeat_groups_same_task_alerts()
     test_heartbeat_cooldown_covers_group()
+    test_copy_variant_deterministic()
+    test_copy_renders_all_library_types()
+    test_heartbeat_emit_text_uses_copy_library()
     test_nudges_pending_and_ack()
     print('\n✓ Todos os testes passaram!\n')
 
