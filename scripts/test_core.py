@@ -3054,6 +3054,63 @@ def test_pending_keeps_failed_delivery():
         print("✓ test_pending_keeps_failed_delivery")
 
 
+def test_due_time_validation_rejects_bad_format():
+    """add_task e update_task rejeitam due_time fora do formato HH:MM 24h."""
+    from ledger import get_ledger_filename
+    from ledger_ops import add_task, update_task
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        ledger_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # add_task rejeita formatos inválidos
+        for bad in ["25:00", "8:00", "20:60", "abc", "20-00", "2000"]:
+            res = add_task(
+                ledger_path=ledger_file,
+                description="Task teste",
+                priority="🟢",
+                today_ddmm="13/04",
+                year=2026,
+                due_time=bad,
+            )
+            assert res.get("ok") is False, f"due_time {bad!r} should be rejected"
+            assert "due_time" in res.get("error", "")
+
+        # add_task aceita formatos válidos
+        res = add_task(
+            ledger_path=ledger_file,
+            description="Task válida",
+            priority="🟢",
+            today_ddmm="13/04",
+            year=2026,
+            due_time="20:00",
+        )
+        assert res.get("ok") is True
+        task_id = res["task_id"]
+
+        # update_task também rejeita
+        bad_update = update_task(
+            ledger_path=ledger_file,
+            task_id=task_id,
+            today_ddmm="13/04",
+            due_time="99:99",
+        )
+        assert bad_update.get("ok") is False
+        assert "due_time" in bad_update.get("error", "")
+
+        # update_task aceita válido
+        ok_update = update_task(
+            ledger_path=ledger_file,
+            task_id=task_id,
+            today_ddmm="13/04",
+            due_time="23:59",
+        )
+        assert ok_update.get("ok") is True
+        print("✓ test_due_time_validation_rejects_bad_format")
+
+
 def test_nudge_record_has_instrumentation_fields():
     """v2.16.0 spec §11: record emitido tem emitted_at, delivery_status, next_task_update_at."""
     from ledger import get_ledger_filename
@@ -3360,6 +3417,7 @@ def run_all_tests():
     test_pending_excludes_successful_delivery_after_24h()
     test_pending_keeps_recent_successful_delivery()
     test_pending_keeps_failed_delivery()
+    test_due_time_validation_rejects_bad_format()
     test_nudge_record_has_instrumentation_fields()
     test_mark_delivery_and_ack_with_response_kind()
     test_compute_kpis_action_within_window()
