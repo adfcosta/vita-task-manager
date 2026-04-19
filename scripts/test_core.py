@@ -2965,6 +2965,95 @@ def test_nudges_pending_and_ack():
         print("✓ test_nudges_pending_and_ack")
 
 
+def test_pending_excludes_successful_delivery_after_24h():
+    """Delivery success há ≥24h conta como 'ignorado implícito' (spec §11) e sai do pending."""
+    from datetime import datetime, timedelta
+    from ledger import get_ledger_filename
+    from heartbeat import build_heartbeat_nudges, get_pending_nudges, mark_delivery
+    from cli import _build_alerts
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        record = _create_test_ledger_record("t1", "Task atrasada", "[ ]",
+                                             created_at="2026-04-10T09:00:00")
+        record["due_date"] = "10/04"
+        record["updated_at"] = "2026-04-10T10:00:00"
+        _write_jsonl(ledger_file, [record])
+
+        alerts_res = _build_alerts(data_dir, today, 2026)
+        result = build_heartbeat_nudges(data_dir=data_dir, alerts=alerts_res["alerts"])
+        nudge_id = result["nudges_records"][0]["id"]
+
+        # Delivery success há 25h — além da janela de 24h
+        emitted = datetime.now() - timedelta(hours=25)
+        mark_delivery(data_dir, nudge_id, "success", emitted_at=emitted)
+
+        pending = get_pending_nudges(data_dir)
+        assert len(pending) == 0, "nudge delivered 25h ago should be implicit-ignored"
+        print("✓ test_pending_excludes_successful_delivery_after_24h")
+
+
+def test_pending_keeps_recent_successful_delivery():
+    """Delivery success há <24h fica em pending (janela pra ack do usuário)."""
+    from datetime import datetime, timedelta
+    from ledger import get_ledger_filename
+    from heartbeat import build_heartbeat_nudges, get_pending_nudges, mark_delivery
+    from cli import _build_alerts
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        record = _create_test_ledger_record("t1", "Task atrasada", "[ ]",
+                                             created_at="2026-04-10T09:00:00")
+        record["due_date"] = "10/04"
+        record["updated_at"] = "2026-04-10T10:00:00"
+        _write_jsonl(ledger_file, [record])
+
+        alerts_res = _build_alerts(data_dir, today, 2026)
+        result = build_heartbeat_nudges(data_dir=data_dir, alerts=alerts_res["alerts"])
+        nudge_id = result["nudges_records"][0]["id"]
+
+        emitted = datetime.now() - timedelta(hours=2)
+        mark_delivery(data_dir, nudge_id, "success", emitted_at=emitted)
+
+        pending = get_pending_nudges(data_dir)
+        assert len(pending) == 1
+        assert pending[0]["id"] == nudge_id
+        print("✓ test_pending_keeps_recent_successful_delivery")
+
+
+def test_pending_keeps_failed_delivery():
+    """Delivery failed mantém nudge em pending independente de idade — Janus precisa retry."""
+    from datetime import datetime, timedelta
+    from ledger import get_ledger_filename
+    from heartbeat import build_heartbeat_nudges, get_pending_nudges, mark_delivery
+    from cli import _build_alerts
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        record = _create_test_ledger_record("t1", "Task atrasada", "[ ]",
+                                             created_at="2026-04-10T09:00:00")
+        record["due_date"] = "10/04"
+        record["updated_at"] = "2026-04-10T10:00:00"
+        _write_jsonl(ledger_file, [record])
+
+        alerts_res = _build_alerts(data_dir, today, 2026)
+        result = build_heartbeat_nudges(data_dir=data_dir, alerts=alerts_res["alerts"])
+        nudge_id = result["nudges_records"][0]["id"]
+
+        emitted = datetime.now() - timedelta(hours=48)
+        mark_delivery(data_dir, nudge_id, "failed", emitted_at=emitted)
+
+        pending = get_pending_nudges(data_dir)
+        assert len(pending) == 1, "failed delivery should stay pending for retry"
+        print("✓ test_pending_keeps_failed_delivery")
+
+
 def test_nudge_record_has_instrumentation_fields():
     """v2.16.0 spec §11: record emitido tem emitted_at, delivery_status, next_task_update_at."""
     from ledger import get_ledger_filename
@@ -3268,6 +3357,9 @@ def run_all_tests():
     test_missed_routine_within_grace_does_not_fire()
     test_fixed_parser_reads_nudge_flag()
     test_nudges_pending_and_ack()
+    test_pending_excludes_successful_delivery_after_24h()
+    test_pending_keeps_recent_successful_delivery()
+    test_pending_keeps_failed_delivery()
     test_nudge_record_has_instrumentation_fields()
     test_mark_delivery_and_ack_with_response_kind()
     test_compute_kpis_action_within_window()

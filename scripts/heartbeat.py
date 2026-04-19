@@ -347,12 +347,59 @@ def build_heartbeat_nudges(
     }
 
 
-def get_pending_nudges(data_dir: Path) -> list[dict]:
-    """Retorna nudges ainda não 'acked' (sem registro type='nudge_ack' correspondente)."""
+PENDING_IMPLICIT_IGNORED_HOURS = 24
+
+
+def get_pending_nudges(data_dir: Path, now: datetime | None = None) -> list[dict]:
+    """Retorna nudges pendentes pra re-exposição/retry.
+
+    Um nudge entra em "pending" quando:
+      - Nunca teve `type="delivery"` registrado (nunca chegou a emitir)
+      - Último delivery foi `failed` ou `skipped` (Janus precisa tentar de novo)
+      - Último delivery foi `success` mas há < 24h (janela pra ack do usuário)
+
+    Sai de "pending" quando:
+      - Há `type="nudge_ack"` correspondente (usuário respondeu)
+      - Último delivery foi `success` há ≥ 24h — trata como `ignorado` implícito
+        (spec §11, patches/janus-AGENTS.md: "sem resposta em 24h conta como
+        ignorado implícito")
+
+    Evita: loop infinito de re-emissão de nudge entregue mas sem ack.
+    """
+    if now is None:
+        now = datetime.now()
     nudges_file = _nudges_path(data_dir)
     records = load_ledger(nudges_file)
     acked_ids = {r["nudge_id"] for r in records if r.get("type") == "nudge_ack"}
-    return [r for r in records if r.get("type") == "nudge" and r.get("id") not in acked_ids]
+
+    # Último delivery por nudge_id (records são append-only em ordem cronológica)
+    last_delivery: dict[str, dict] = {}
+    for r in records:
+        if r.get("type") == "delivery":
+            nid = r.get("nudge_id")
+            if nid:
+                last_delivery[nid] = r
+
+    pending: list[dict] = []
+    implicit_cutoff = now - timedelta(hours=PENDING_IMPLICIT_IGNORED_HOURS)
+    for r in records:
+        if r.get("type") != "nudge":
+            continue
+        nid = r.get("id")
+        if not nid or nid in acked_ids:
+            continue
+        delivery = last_delivery.get(nid)
+        if delivery and delivery.get("delivery_status") == "success":
+            emitted_at = delivery.get("emitted_at")
+            if emitted_at:
+                try:
+                    emitted_dt = datetime.fromisoformat(emitted_at)
+                    if emitted_dt < implicit_cutoff:
+                        continue  # delivered successfully 24h+ ago, implicit ignored
+                except ValueError:
+                    pass  # malformed timestamp: keep as pending
+        pending.append(r)
+    return pending
 
 
 def ack_nudge(
