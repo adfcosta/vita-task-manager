@@ -357,9 +357,13 @@ Todos os arquivos de dados pessoais estão no `.gitignore`, então updates da sk
 
 ## Testes
 
+**Requer Python 3.11+** (mesma versão do container `openclaw-gateway`; código usa sintaxe PEP 604 `X | Y`).
+
 ```bash
 VITA_TEST_MODE=1 python3 scripts/test_core.py
 ```
+
+No Mac com `python3` default em versão antiga (macOS ainda vem com 3.9), usar `python3.11` explicitamente.
 
 A flag `VITA_TEST_MODE=1` ativa proteção anti-contaminação: se algum teste tentar escrever fora de path temporário, o `append_record` redireciona pra arquivo `TEST_*` e emite warning. Útil pra garantir que testes não sujam seu ledger real durante desenvolvimento.
 
