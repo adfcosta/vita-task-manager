@@ -528,7 +528,7 @@ def cmd_ledger_status(args) -> int:
     return 0
 
 
-def _build_alerts(data_dir: Path, today, year: int) -> dict[str, Any]:
+def _build_alerts(data_dir: Path, today, year: int, first_touch_min_hours: int = 12) -> dict[str, Any]:
     """Inspeciona o ledger e retorna alertas acionáveis (função pura, sem I/O de emit).
 
     Alertas detectados:
@@ -536,6 +536,8 @@ def _build_alerts(data_dir: Path, today, year: int) -> dict[str, Any]:
     - overdue: tasks com due_date < hoje
     - stalled: tasks em [~] há mais de 48h sem atualização
     - blocked: tasks com postpone_count >= 3
+    - first_touch: tasks em [ ] criadas há first_touch_min_hours+ sem toque
+      (sem updated_at) — spec TDAH §5.1
     """
     try:
         from .ledger import _merge_task_records, get_ledger_filename, get_week_start
@@ -629,11 +631,33 @@ def _build_alerts(data_dir: Path, today, year: int) -> dict[str, Any]:
                 "postpone_count": postpone,
             })
 
+        # First touch (spec §5.1): task em [ ] criada há N+ horas sem nenhum toque.
+        # "Toque" = qualquer updated_at registrado (ledger-start/progress/update
+        # sempre atualizam updated_at). Sem updated_at = nunca foi mexida.
+        if status == "[ ]" and not task.get("updated_at"):
+            created = task.get("created_at")
+            if created:
+                try:
+                    created_dt = datetime.fromisoformat(created)
+                    now = datetime.combine(today, datetime.min.time().replace(hour=23, minute=59))
+                    hours_since_created = (now - created_dt).total_seconds() / 3600
+                    if hours_since_created >= first_touch_min_hours:
+                        alerts.append({
+                            "type": "first_touch",
+                            "task_id": task_id,
+                            "description": desc,
+                            "hours_since_created": round(hours_since_created),
+                            "created_at": created,
+                        })
+                except (ValueError, TypeError):
+                    pass
+
     counts = {
         "due_today": len([a for a in alerts if a["type"] == "due_today"]),
         "overdue": len([a for a in alerts if a["type"] == "overdue"]),
         "stalled": len([a for a in alerts if a["type"] == "stalled"]),
         "blocked": len([a for a in alerts if a["type"] == "blocked"]),
+        "first_touch": len([a for a in alerts if a["type"] == "first_touch"]),
     }
 
     return {
@@ -1011,12 +1035,15 @@ def cmd_heartbeat_tick(args) -> int:
     today = _ddmm_to_date(args.today, args.year)
     config = load_heartbeat_config(data_dir)
     cooldown_hours = args.cooldown_hours if args.cooldown_hours is not None else config["cooldown_hours"]
+    thresholds = config.get("thresholds") or {}
+    first_touch_min_hours = thresholds.get("first_touch_min_hours", 12)
 
-    alerts_result = _build_alerts(data_dir, today, args.year)
+    alerts_result = _build_alerts(data_dir, today, args.year, first_touch_min_hours=first_touch_min_hours)
     heartbeat_result = build_heartbeat_nudges(
         data_dir=data_dir,
         alerts=alerts_result["alerts"],
         cooldown_hours=cooldown_hours,
+        config=config,
     )
 
     _emit({

@@ -1,5 +1,5 @@
 {
-  "_comment": "Config do heartbeat-tick (v2.12.0). Copiar para data/heartbeat-config.json. Valores omitidos caem pros defaults spec-aligned — editar JSON não exige restart, efeito no próximo tick.",
+  "_comment": "Config do heartbeat-tick (v2.14.0). Copiar para data/heartbeat-config.json. Valores omitidos caem pros defaults spec-aligned — editar JSON não exige restart, efeito no próximo tick.",
   "emit_target": "agent:main:whatsapp:direct:+XXYYYYYYYYYY",
   "severity_floor": "critical",
   "cooldown_hours": 24,
@@ -7,6 +7,7 @@
   "thresholds": {
     "overdue_min_days": 1,
     "stalled_min_hours": 24,
-    "blocked_min_postpones": 2
+    "blocked_min_postpones": 2,
+    "first_touch_min_hours": 12
   }
 }

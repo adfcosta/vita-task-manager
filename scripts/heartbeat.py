@@ -26,7 +26,10 @@ CONFIG_FILENAME = "heartbeat-config.json"
 
 # Severidade: menor = mais crítico (emitido primeiro). Usado pra ordenar
 # grupos quando excedem max_nudges_per_tick.
-SEVERITY_ORDER = {"overdue": 0, "blocked": 1, "stalled": 2, "due_today": 3}
+# first_touch fica entre blocked e stalled: task parada sem toque é
+# dificuldade de iniciação (spec §5.1), urgente mas não passa na frente
+# de coisa já adiada.
+SEVERITY_ORDER = {"overdue": 0, "blocked": 1, "first_touch": 2, "stalled": 3, "due_today": 4}
 
 
 def _nudges_path(data_dir: Path) -> Path:
@@ -46,6 +49,7 @@ def load_heartbeat_config(data_dir: Path) -> dict:
       - thresholds.overdue_min_days: 1
       - thresholds.stalled_min_hours: 24
       - thresholds.blocked_min_postpones: 2
+      - thresholds.first_touch_min_hours: 12 (v2.14.0, spec §5.1)
     """
     path = _config_path(data_dir)
     defaults = {
@@ -57,6 +61,7 @@ def load_heartbeat_config(data_dir: Path) -> dict:
             "overdue_min_days": 1,
             "stalled_min_hours": 24,
             "blocked_min_postpones": 2,
+            "first_touch_min_hours": 12,
         },
     }
     if not path.exists():
@@ -82,6 +87,7 @@ def is_critical(alert: dict, thresholds: dict | None = None) -> bool:
             "overdue_min_days": 1,
             "stalled_min_hours": 24,
             "blocked_min_postpones": 2,
+            "first_touch_min_hours": 12,
         }
     t = alert.get("type")
     if t == "overdue":
@@ -90,6 +96,8 @@ def is_critical(alert: dict, thresholds: dict | None = None) -> bool:
         return alert.get("hours_since_update", 0) >= thresholds.get("stalled_min_hours", 24)
     if t == "blocked":
         return alert.get("postpone_count", 0) >= thresholds.get("blocked_min_postpones", 2)
+    if t == "first_touch":
+        return alert.get("hours_since_created", 0) >= thresholds.get("first_touch_min_hours", 12)
     # due_today e outros tipos não viram nudge crítico por padrão
     return False
 
@@ -270,7 +278,7 @@ def build_heartbeat_nudges(
         }
         # Contexto: campos do primeiro alerta com severidade mais alta no grupo
         primary = min(group_alerts, key=lambda a: SEVERITY_ORDER.get(a["type"], 99))
-        for k in ("days_overdue", "hours_since_update", "postpone_count", "priority", "due_date"):
+        for k in ("days_overdue", "hours_since_update", "postpone_count", "hours_since_created", "priority", "due_date"):
             if k in primary:
                 record[k] = primary[k]
         append_record(nudges_file, record)

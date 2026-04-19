@@ -23,7 +23,7 @@ Substituir tudo entre os marcadores pelo conteúdo novo deste patch.
 
 ---
 
-<!-- BEGIN vita-task-manager v2.13.0 -->
+<!-- BEGIN vita-task-manager v2.14.0 -->
 ## Sistema de Tasks (via vita-task-manager)
 
 **Regra de ouro:** Vita nunca edita arquivos de task direto. Toda
@@ -104,7 +104,7 @@ nudge e limita a `max_nudges_per_tick` por tick. Thresholds e limites
 vivem em `data/heartbeat-config.json` — editar o JSON tem efeito no
 próximo tick, sem restart.
 
-Defaults (spec-aligned, v2.13.0):
+Defaults (spec-aligned, v2.14.0):
 
 ```json
 {
@@ -113,10 +113,15 @@ Defaults (spec-aligned, v2.13.0):
   "thresholds": {
     "overdue_min_days": 1,
     "stalled_min_hours": 24,
-    "blocked_min_postpones": 2
+    "blocked_min_postpones": 2,
+    "first_touch_min_hours": 12
   }
 }
 ```
+
+`first_touch` (v2.14.0, spec §5.1): task em `[ ]` criada há 12h+ sem
+`updated_at` — qualquer `ledger-start/progress/update` conta como
+toque e zera o alerta.
 
 Backup de surfacing: se `sessions_send` falhar ou estiver
 indisponível, o nudge já está no disco — próxima interação normal
@@ -171,7 +176,7 @@ Todo comando:
 
 ## Validação após aplicação
 
-- [ ] Marcadores `<!-- BEGIN vita-task-manager v2.13.0 -->` e
+- [ ] Marcadores `<!-- BEGIN vita-task-manager v2.14.0 -->` e
       `<!-- END vita-task-manager -->` presentes no AGENTS vivo
 - [ ] Seções fora do bloco (Session Start, Scope, Safety, Memory,
       Operating Rules, etc.) intactas
