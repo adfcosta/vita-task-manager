@@ -210,10 +210,6 @@ Default: 2 tasks em `[~]`. `ledger-start` bloqueia além disso com mensagem ao u
 - Limpeza D+1: tasks concluídas/canceladas somem do render a partir do dia seguinte.
 - Rollover: automático no primeiro `pipeline` da semana nova.
 
-## Legado (não invocar)
-
-`validate`, `summary`, `add`, `progress`, `complete`, `cancel`, `resort` — formato markdown pré-ledger.
-
 ## Testes
 
 ```bash

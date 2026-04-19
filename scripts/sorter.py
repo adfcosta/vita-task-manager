@@ -1,8 +1,8 @@
 try:
-    from .models import Task, TaskFile
+    from .models import Task
     from .utils import days_remaining
 except ImportError:
-    from models import Task, TaskFile
+    from models import Task
     from utils import days_remaining
 
 
@@ -55,22 +55,3 @@ def sort_open_tasks(tasks: list[Task], today_ddmm: str, year: int) -> list[Task]
     7. Dentro do mesmo status: ordem alfabética
     """
     return sorted(tasks, key=lambda t: _task_sort_key(t, today_ddmm, year))
-
-
-def sort_task_file(task_file: TaskFile, today_ddmm: str, year: int) -> TaskFile:
-    """
-    Ordena todas as tarefas do arquivo:
-    - Abertas: por prioridade e prazo
-    - Concluídas: por data de conclusão
-    - Canceladas: por data de atualização
-    """
-    task_file.open_tasks = sort_open_tasks(task_file.open_tasks, today_ddmm, year)
-    task_file.completed_tasks = sorted(
-        task_file.completed_tasks, 
-        key=lambda t: (t.completed_at or "", t.description.lower())
-    )
-    task_file.cancelled_tasks = sorted(
-        task_file.cancelled_tasks, 
-        key=lambda t: (t.updated_at or "", t.description.lower())
-    )
-    return task_file
