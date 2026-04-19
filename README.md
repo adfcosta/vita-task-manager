@@ -138,7 +138,7 @@ O sistema gera dois formatos de saída:
 
 | Comando | Descrição |
 |---------|-----------|
-| `check-alerts` | Inspeciona ledger e retorna alertas acionáveis (due_today, overdue, stalled, blocked) |
+| `check-alerts` | Inspeciona ledger e retorna alertas acionáveis (due_today, overdue, stalled, blocked, first_touch, off_pace, due_soon, missed_routine) |
 
 ### Heartbeat proativo (push)
 
@@ -146,7 +146,9 @@ O sistema gera dois formatos de saída:
 |---------|-----------|
 | `heartbeat-tick` | Filtra alertas críticos, aplica cooldown, persiste nudges e retorna `emit_text` pronto pra `sessions_send` |
 | `nudges-pending` | Lista nudges ainda não confirmados (fallback quando `sessions_send` falhar) |
-| `nudges-ack` | Marca nudge como confirmado pelo usuário |
+| `nudge-delivery` | Registra resultado da emissão do nudge (success / failed / skipped) |
+| `nudges-ack` | Marca nudge como confirmado pelo usuário (com `--response-kind`: agora / depois / replanejar) |
+| `nudge-kpis` | Consolida taxa de ação, ignorados e resposta por alert_type/variante A-B (retro semanal) |
 
 ### Automação
 
@@ -330,7 +332,7 @@ cli dump-to-task --dump-id ... --item "Trocar lâmpada" --next-action "Ir na loj
 
 O item convertido some automaticamente do brain dump.
 
-### Features Implementadas (v2.2 - v2.11)
+### Features Implementadas (v2.2 - v2.18)
 
 - ✅ **Scoring automático:** Algoritmo 1-3-5 sugere quais tarefas fazer
 - ✅ **Complexidade inferida:** IA avalia dificuldade (1-10)
@@ -341,6 +343,10 @@ O item convertido some automaticamente do brain dump.
 - ✅ **Rollover resiliente:** Migração de tasks em qualquer dia da semana
 - ✅ **Diagnóstico:** `ledger-status` para troubleshooting
 - ✅ **Heartbeat proativo (v2.11.2):** Nudges críticos via WhatsApp sem depender de pergunta do usuário
+- ✅ **Taxonomia de alertas ADHD (v2.13–v2.18, spec v1.0):** 8 tipos — `overdue`, `blocked`, `missed_routine`, `due_soon`, `first_touch`, `stalled`, `off_pace`, `due_today` — com severidade, consolidação e cooldown
+- ✅ **Copy A/B determinístico (v2.15.0):** biblioteca de nudges com seleção via hash por `task_id:alert_type`
+- ✅ **Instrumentação de nudges (v2.16.0, spec §11):** `nudge-delivery`, `nudges-ack --response-kind`, `nudge-kpis` para medir taxa de ação/ignorados por variante
+- ✅ **Opt-in de rotina (v2.18.0, spec §14.4):** sigil `!nudge` em `rotina.md` habilita `missed_routine` sem poluir rotinas sem consequência
 
 ### Próximas Features (v3.0+)
 

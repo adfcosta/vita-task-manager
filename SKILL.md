@@ -304,6 +304,10 @@ Inspeciona o ledger e retorna JSON com alertas acionáveis:
 | `overdue` | Task com `due_date` no passado (inclui `days_overdue`) |
 | `stalled` | Task em `[~]` há mais de 48h sem atualização |
 | `blocked` | Task com `postpone_count >= 3` |
+| `first_touch` | Task em `[ ]` criada há ≥12h sem nenhum `updated_at` (v2.14.0, spec §5.1) |
+| `off_pace` | Task com `progress_total` definido cujo `done` está abaixo de `(dias_passados / dias_totais) * total * off_pace_ratio` (v2.18.0, spec §5.6) |
+| `due_soon` | Task com `due_date = hoje` + `due_time` dentro da janela `due_soon_window_hours` (v2.17.0, spec §5.2) |
+| `missed_routine` | Task de rotina com `alert_on_miss=true` (sigil `!nudge`) em `[ ]` passado o horário esperado + grace window (v2.18.0, spec §5.7/§14.4) |
 
 Retorna `has_alerts: true/false`, contagens por tipo em `counts`, e lista detalhada em `alerts`. Projetado para ser chamado pelo Plugin SDK do Janus sem gastar tokens de LLM (execução local via `execSync`). Ver `patches/vita-SESSION-DESIGN.md` para o design completo.
 
@@ -322,9 +326,15 @@ python3 scripts/cli.py heartbeat-tick \
 | Tipo | Condição crítica |
 |---|---|
 | `overdue` | `days_overdue >= 2` |
-| `stalled` | `hours_since_update >= 48` |
 | `blocked` | `postpone_count >= 3` |
+| `missed_routine` | opt-in (`!nudge`) + grace window já aplicada no detector |
+| `due_soon` | dentro da janela de horas antes do prazo (default 4h) |
+| `first_touch` | `hours_since_create >= 12` sem nenhum toque |
+| `stalled` | `hours_since_update >= 48` |
+| `off_pace` | `done < (dias_passados/dias_totais) * total * off_pace_ratio` |
 | `due_today` | nunca crítico (ruído pro push) |
+
+Ordem de severidade (quando várias aparecem pra mesma task): `overdue` → `blocked` → `missed_routine` → `due_soon` → `first_touch` → `stalled` → `off_pace` → `due_today`. Consolidação gera **um** nudge por task por tick.
 
 **Cooldown:** por `task_id + alert_type`, padrão 24h. Alerta reaparece só depois do cooldown expirar.
 
@@ -349,28 +359,61 @@ Se `emit_text` não for vazio **e** `emit_target` não for null, a Vita chama `s
 {
   "emit_target": "agent:main:whatsapp:direct:+XXYYYYYYYYYY",
   "severity_floor": "critical",
-  "cooldown_hours": 24
+  "cooldown_hours": 24,
+  "max_nudges_per_tick": 3,
+  "thresholds": {
+    "overdue_min_days": 1,
+    "stalled_min_hours": 24,
+    "blocked_min_postpones": 2,
+    "first_touch_min_hours": 12,
+    "off_pace_ratio": 0.7,
+    "due_soon_window_hours": 4,
+    "missed_routine_grace_hours": 1
+  }
 }
 ```
 
-Sem o arquivo: `emit_target=null` (não emite, só persiste), `severity_floor=critical`, `cooldown_hours=24`.
+Sem o arquivo: `emit_target=null` (não emite, só persiste), `severity_floor=critical`, `cooldown_hours=24`, `max_nudges_per_tick=3`, e thresholds default conforme acima. Editar o JSON tem efeito no próximo tick, sem restart.
 
-**Store:** `data/proactive-nudges.jsonl` (append-only, gerenciado). Registros `type="nudge"` para alertas emitidos, `type="nudge_ack"` quando o usuário confirmou. `get_pending_nudges` ignora acks.
+**Store:** `data/proactive-nudges.jsonl` (append-only, gerenciado). Tipos de registro:
 
-### Nudges pendentes e ack
+| `type` | Emitido por | O que consolida |
+|---|---|---|
+| `nudge` | `heartbeat-tick` quando um alerta crítico é selecionado | estado inicial, cria o `nudge_id` |
+| `delivery` | `nudge-delivery` quando Janus emite (ou falha/skip) | `status: success / failed / skipped` |
+| `link` | `nudge-delivery` em modo link (amarra nudge a ack externo) | pareamento cross-canal |
+| `nudge_ack` | `nudges-ack` quando o usuário responde | `response_kind: agora / depois / replanejar` |
+
+`get_pending_nudges` ignora nudges já com `nudge_ack` ou `delivery.status=skipped`.
+
+### Nudges pendentes, delivery e ack (instrumentação v2.16.0, spec §11)
 
 ```bash
 # listar nudges ainda não confirmados (backup se sessions_send falhar)
 python3 scripts/cli.py nudges-pending --data-dir data
 
-# marcar nudge como confirmado pelo usuário
-python3 scripts/cli.py nudges-ack \
-  --nudge-id nudge_20260418_1234 \
-  --source manual \
+# registrar o resultado da emissão (Janus chama após enviar pro canal)
+python3 scripts/cli.py nudge-delivery \
+  --nudge-id nudge_abcd1234 \
+  --status success \
   --data-dir data
+# status: success | failed | skipped (agrupamento/janela inconveniente)
+
+# marcar nudge como confirmado pelo usuário (com tipo de resposta)
+python3 scripts/cli.py nudges-ack \
+  --nudge-id nudge_abcd1234 \
+  --source telegram_user \
+  --response-kind agora \
+  --data-dir data
+# response-kind: agora | depois | replanejar
+
+# KPIs consolidados (retro semanal)
+python3 scripts/cli.py nudge-kpis --window-days 7 --data-dir data
 ```
 
-Usar `nudges-pending` na próxima interação normal se o heartbeat não conseguir entregar (falha de `sessions_send`, janela inconveniente). Assim o nudge não se perde — reaparece no primeiro diálogo.
+Fluxo: heartbeat-tick cria `nudge` → Janus emite e chama `nudge-delivery` → usuário responde e Janus chama `nudges-ack`. Nudges sem ack em 24h viram `ignored_rate` implicitamente no KPI. Usar `nudges-pending` na próxima interação se o push falhar — nudge não se perde.
+
+`nudge-kpis` retorna, por `alert_type` e variante A/B: taxa de ação (`acted_rate`), taxa de ignorados (`ignored_rate`), tempo médio até ack, e mix por `response_kind`.
 
 ### Detecção de duplicatas
 

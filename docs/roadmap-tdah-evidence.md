@@ -5,8 +5,9 @@ especificação técnica "Vita orientada por evidências para suporte
 operacional ao TDAH" (spec v1.0).
 
 **Documento base:** spec v1.0 (recorte não-farmacológico).  
-**Última revisão:** 2026-04-18.  
-**Versão atual da skill:** 2.11.3.
+**Última revisão:** 2026-04-19.  
+**Versão atual da skill:** 2.18.0.  
+**Status do roadmap:** ✅ **encerrado** — v2.12.0 → v2.18.0 entregues; v2.19.0 descopada por decisão do dono (fora do escopo da skill de produtividade, tratar via camada separada de safety).
 
 ---
 
@@ -33,40 +34,44 @@ Por isso a ordem abaixo diverge da spec em três pontos:
 
 ## Roadmap
 
-| Versão | Feature | Custo | Valor TDAH |
-|---|---|---|---|
-| v2.12.0 | Thresholds config + `max_nudges_per_tick` + agrupamento por task | baixo | médio (tuning) |
-| v2.13.0 | Copy library refatorada + `copy_variant` + `cooldown_applied` | baixo | alto (linguagem acionável) |
-| v2.14.0 | `first_touch` | médio | alto (alvo nº1 spec) |
-| v2.15.0 | `off_pace` | médio | alto (fiasco silencioso) |
-| v2.16.0 | KPIs + instrumentação completa | médio | alto (mensuração) |
-| v2.17.0 | `due_soon` com janela horária (requer `due_time` no model) | alto | alto |
-| v2.18.0 | `missed_routine` opt-in | médio | médio |
-| v2.19.0 | Guardrail de segurança (§14.3) | baixo | alto (crítico) |
+| Versão | Feature | Custo | Valor TDAH | Status |
+|---|---|---|---|---|
+| v2.12.0 | Thresholds config + `max_nudges_per_tick` + agrupamento por task | baixo | médio (tuning) | ✅ entregue |
+| v2.13.0 | Copy library refatorada + `copy_variant` + `cooldown_applied` | baixo | alto (linguagem acionável) | ✅ entregue |
+| v2.14.0 | `first_touch` | médio | alto (alvo nº1 spec) | ✅ entregue |
+| v2.15.0 | `off_pace` (antecipado: `copy_variant` A/B determinístico) | médio | alto | ✅ entregue (ordem revisada — ver nota) |
+| v2.16.0 | KPIs + instrumentação completa (`nudge-delivery`, `nudge-kpis`, `response_kind`) | médio | alto (mensuração) | ✅ entregue |
+| v2.17.0 | `due_soon` com janela horária (requer `due_time` no model) | alto | alto | ✅ entregue |
+| v2.18.0 | `missed_routine` opt-in (sigil `!nudge`) | médio | médio | ✅ entregue |
+| v2.19.0 | Guardrail de segurança (§14.3) | baixo | alto (crítico) | ❌ **descopada** — fora do escopo da skill de produtividade |
+
+> **Nota sobre v2.15.0:** na execução real, `off_pace` (conteúdo descrito no bloco v2.15.0 abaixo) caiu em **v2.18.0** junto com `missed_routine`, porque precedência de implementação inverteu: `copy_variant` A/B determinístico foi entregue em v2.15.0 pra destravar KPIs em v2.16.0. O resultado final cobre tudo — só mudou em qual tag cada parte aterrissou.
+
+> **Nota sobre v2.19.0:** dono decidiu não implementar. Guardrail de safety sai do escopo desta skill — trata-se de responsabilidade de uma camada separada (roteamento humano / crisis hotline) que não depende do ledger de produtividade. Arquivos e blocos abaixo ficam como referência histórica.
 
 ### Dependências
 
 ```
-v2.12.0 (config infra)
+v2.12.0 (config infra) ✅
    ↓
-v2.13.0 (copy + copy_variant) ──┐
-   ↓                             │
-v2.14.0 (first_touch) ──────────┤
-   ↓                             │
-v2.15.0 (off_pace) ─────────────┤
-   ↓                             ↓
-v2.16.0 (KPIs depende de copy_variant)
+v2.13.0 (copy + copy_variant) ✅ ──┐
+   ↓                                │
+v2.14.0 (first_touch) ✅ ──────────┤
+   ↓                                │
+v2.15.0 (copy_variant A/B hash) ✅ ┤
+   ↓                                ↓
+v2.16.0 (KPIs + delivery + ack) ✅
    ↓
-v2.17.0 (due_soon c/ hora) — requer evolução de model
+v2.17.0 (due_soon c/ hora) ✅ — evolução de model entregue
    ↓
-v2.18.0 (missed_routine) — requer evolução de FixedEntry
+v2.18.0 (missed_routine opt-in + off_pace) ✅ — evolução de FixedEntry entregue
 
-v2.19.0 (segurança) — paralelo, sem dependência
+v2.19.0 (segurança) ❌ descopada
 ```
 
 ---
 
-## v2.12.0 — Thresholds configuráveis + limite por tick + agrupamento
+## v2.12.0 — Thresholds configuráveis + limite por tick + agrupamento ✅ entregue
 
 **Objetivo:** permitir experimentação comportamental sem deploy,
 reduzir fadiga de cluster, agrupar múltiplos sinais da mesma task.
@@ -131,7 +136,7 @@ Leitura tolera ambos (compat).
 
 ---
 
-## v2.13.0 — Copy library + `copy_variant`
+## v2.13.0 — Copy library + `copy_variant` ✅ entregue
 
 **Objetivo:** alinhar mensagens ao padrão spec §7.3 (**detecção +
 janela + ação mínima**), permitir A/B.
@@ -188,7 +193,7 @@ def pick_variant(task_id, alert_type): ...  # hash-determinística
 
 ---
 
-## v2.14.0 — `first_touch`
+## v2.14.0 — `first_touch` ✅ entregue
 
 **Objetivo:** spec §5.1 — atacar dificuldade de iniciação. Task
 criada há 12h+ sem movimentação dispara nudge.
@@ -227,7 +232,7 @@ if status == "[ ]" and not task.get("started_at") and not task.get("updated_at")
 
 ---
 
-## v2.15.0 — `off_pace`
+## v2.15.0 — `off_pace` ✅ entregue (conteúdo real: A/B determinístico; `off_pace` aterrissou em v2.18.0)
 
 **Objetivo:** spec §5.6 — detectar tasks longas andando devagar
 antes de virar `overdue`.
@@ -267,7 +272,7 @@ if done is not None and total and due:
 
 ---
 
-## v2.16.0 — KPIs + instrumentação completa
+## v2.16.0 — KPIs + instrumentação completa ✅ entregue
 
 **Objetivo:** spec §16 — responder "quantos nudges viraram ação útil?".
 
@@ -320,7 +325,7 @@ Retorna: `action_within_2h`, `action_within_24h`, `median_hours_to_update`,
 
 ---
 
-## v2.17.0 — `due_soon` com janela horária
+## v2.17.0 — `due_soon` com janela horária ✅ entregue
 
 **Objetivo:** spec §5.2 — dispara 4h antes do vencimento real.
 
@@ -358,7 +363,7 @@ CLI `ledger-add` ganha `--due-time "HH:MM"`.
 
 ---
 
-## v2.18.0 — `missed_routine` opt-in
+## v2.18.0 — `missed_routine` opt-in ✅ entregue (inclui `off_pace`)
 
 **Objetivo:** spec §5.7 + §14.4 — rotina crítica não executada
 até horário-limite dispara nudge, mas só se opt-in.
@@ -397,7 +402,14 @@ if task.get("source") == "rotina" and task.get("alert_on_miss") and status == "[
 
 ---
 
-## v2.19.0 — Guardrail de segurança
+## v2.19.0 — Guardrail de segurança ❌ descopada
+
+> **Decisão (2026-04-19):** dono optou por não implementar nesta skill.
+> Safety de crise exige camada separada (roteamento humano, hotlines,
+> protocolos clínicos) que não se beneficia de acoplamento com o ledger
+> de produtividade. O risco de falso negativo num detector keyword-based
+> embutido aqui é mais perigoso do que não ter o detector. Bloco abaixo
+> mantido como referência caso a decisão volte à mesa.
 
 **Objetivo:** spec §14.3 — detectar menção a crise e sair do modo
 produtividade.
@@ -439,3 +451,7 @@ inputs sensíveis.
 - **2026-04-18** — Draft inicial com base em spec v1.0. Ordem
   ajustada: copy antecipa, off_pace antecipa, due_soon atrasa,
   KPIs atrasam.
+- **2026-04-19** — Roadmap encerrado. v2.12.0 → v2.18.0 entregues
+  (com ajustes de ordem: `copy_variant` A/B determinístico caiu em
+  v2.15.0; `off_pace` aterrissou junto com `missed_routine` em
+  v2.18.0). v2.19.0 (guardrail §14.3) descopada por decisão do dono.
