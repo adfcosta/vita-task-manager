@@ -56,9 +56,6 @@ vita-task-manager/
 ├── output/                          # Render diário
 │   └── diarias.txt                  # Formato WhatsApp (padrão)
 │
-├── docs/
-│   └── roadmap-tdah-evidence.md     # Plano por versão (v2.12→v2.18 ✅, v2.19 descopada)
-│
 ├── patches/                         # Blocos que a skill enxerta em AGENTS vivos
 │   ├── README.md                    # Filosofia delta + como aplicar
 │   ├── vita-AGENTS.md               # Bloco pro agente Vita
@@ -86,7 +83,7 @@ vita-task-manager/
 | `output/diarias.txt` | **CLI** (overwrite) | `render` / `pipeline` |
 | `scripts/**` | **Mantenedores** | PR |
 | `patches/**` | **Mantenedores** | PR — versionar junto com bump da skill |
-| `docs/**`, `examples/**`, `references/**` | **Mantenedores** | PR |
+| `examples/**`, `references/**` | **Mantenedores** | PR |
 | `SKILL.md`, `README.md`, `CHANGELOG.md`, `ROADMAP.md`, `WHATSAPP_LAYOUT.md`, `DIRECTORY_STRUCTURE.md` | **Mantenedores** | PR |
 
 ## Regras pra Vita

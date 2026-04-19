@@ -1,6 +1,6 @@
 # Layout WhatsApp para vita-task-manager
 
-## Formato Aprovado v2.2.0
+## Formato Aprovado (estável desde v2.2.0; vigente em v2.18.0)
 
 ```
 📋 Tasks — 08/04/2026

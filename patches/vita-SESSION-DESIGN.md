@@ -1,7 +1,13 @@
 # Vita Session Optimization — Proposta de Design
 
+> **Nota:** este é um documento de design (referência histórica, não aplicado como
+> patch). A versão abaixo (**2.11.1**) é do próprio documento — marca a última vez
+> que o design foi revisado — e é **independente da versão da skill**
+> (atualmente 2.18.0). Não precisa bump a cada release da skill; só atualizar
+> quando o desenho do modelo de sessão mudar.
+
 **Status:** Em produção (Camadas 2, 3, 4); Camada 1 revisada em v2.11.1  
-**Versão:** 2.11.1  
+**Versão do documento:** 2.11.1 (design doc — independente da versão da skill)  
 **Data:** 2026-04-18  
 **Referências:**
 - https://docs.openclaw.ai/automation/cron-jobs
