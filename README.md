@@ -180,8 +180,8 @@ Cada tipo representa um padrão de falha reconhecível em TDAH:
 | Tipo | O que captura | Dispara quando |
 |---|---|---|
 | `overdue` | Prazo estourou, você não viu | `due_date` no passado |
-| `due_today` | Prazo é hoje (ruído, nunca vira nudge) | `due_date` = hoje |
-| `due_soon` | Prazo é hoje e tá chegando a hora | hoje + `due_time` dentro da janela (default 4h) |
+| `due_today` | Prazo é hoje — informativo, **não vira nudge** (ver nota abaixo) | `due_date` = hoje |
+| `due_soon` | Prazo é hoje e tá chegando a hora — **este sim vira nudge** | hoje + `due_time` dentro da janela (default 4h) |
 | `missed_routine` | Rotina crítica que não rodou | opt-in via `!nudge` em `rotina.md`, passou horário + grace |
 | `first_touch` | Criou e nunca tocou — bloqueio de iniciação | task em `[ ]` há ≥12h sem nenhum `updated_at` |
 | `stalled` | Começou e travou | task em `[~]` há ≥48h sem update |
@@ -198,15 +198,33 @@ Assim o usuário recebe **um** recado por task, não um bombardeio.
 
 Eles derivam da observação de que TDAH não tem um único padrão de falha — tem vários, e precisam ser tratados com linguagens diferentes. `first_touch` é sobre iniciação; a copy pergunta pela **primeira ação concreta**. `blocked` é sobre aversão; a copy reconhece e propõe um passo mínimo. `off_pace` é sobre fiasco silencioso; dispara antes de virar `overdue`, quando ainda há tempo de recolocar no trilho.
 
+### Por que `due_today` não vira nudge (mas `due_soon` vira)
+
+Toda task que vence hoje dispara `due_today` como sinal passivo no render — o usuário vê no `output/diarias.txt` que ela está lá. Se virasse nudge ativo, todo dia às 6 da manhã chegariam 3-5 notificações de "vence hoje" que não são acionáveis ainda (o dia mal começou). Vira ruído.
+
+`due_soon` é o recorte útil: task que **vence hoje** E **tem `due_time` dentro das próximas 4h** (configurável em `due_soon_window_hours`). Isso vira nudge. O usuário é avisado quando a ação é imediata, não quando só é "pra hoje".
+
+Se você quer que TODA task com vencimento hoje vire nudge independente da hora, setar `due_soon_window_hours: 24` em `heartbeat-config.json` resolve — efeito no próximo tick.
+
 ### Ciclo completo: delivery → ack → KPIs
 
-Quando a Vita emite um nudge via `sessions_send`, o Janus (agente de mensagem) registra o resultado via `nudge-delivery --status success|failed|skipped`. Se o usuário responder, vira `nudges-ack --response-kind agora|depois|replanejar`. Sem resposta em 24h → conta como `ignorado` implícito no KPI.
+Cada nudge tem ciclo de vida instrumentado ponta-a-ponta. O record em `data/proactive-nudges.jsonl` acumula os estados via eventos append-only:
+
+| Estado | Quando | Record emitido |
+|---|---|---|
+| **gerado** | `heartbeat-tick` persiste o nudge | `type=nudge`, `delivery_status=pending` |
+| **entregue / falhou / pulado** | Janus chama `nudge-delivery --status ...` após `sessions_send` | `type=delivery`, `delivery_status=success\|failed\|skipped`, `emitted_at` |
+| **acked** | Usuário responde e Janus chama `nudges-ack --response-kind ...` | `type=nudge_ack`, `response_kind=agora\|depois\|replanejar`, `acked_at` |
+| **impacto na task** | `execution-history` liga retroativamente ao próximo update da task | `type=link`, `next_task_update_at` |
+| **ignorado implícito** | Delivery `success` sem ack em 24h | sem record novo; `nudge-kpis` classifica na consolidação |
 
 O comando `nudge-kpis --window-days 7` fecha o ciclo: retorna taxa de ação, ignorados, e mix de resposta por tipo de alerta e variante A/B. Essa é a retro semanal — permite ver se uma copy específica é melhor que a outra, se um tipo de alerta tá virando spam, ou se um tipo de resposta predomina (ex: "sempre 'depois'" = o formato não tá convencendo).
 
-### Configuração viva
+O cooldown de 24h respeita o `delivery_status`: se a entrega falhou, o próximo tick re-emite (o usuário não recebeu). Só nudges `success` ou `pending` bloqueiam re-emissão.
 
-Todos os thresholds vivem em `data/heartbeat-config.json`:
+### Configuração viva (nenhum threshold é hardcode)
+
+Todos os parâmetros do heartbeat — criticidade, janela de cooldown, tamanho do lote, thresholds por tipo de alerta — vivem em `data/heartbeat-config.json`. Editar o arquivo tem efeito no próximo tick, sem restart:
 
 ```json
 {
@@ -226,7 +244,7 @@ Todos os thresholds vivem em `data/heartbeat-config.json`:
 }
 ```
 
-Editar o arquivo tem efeito no próximo tick, sem restart. Sem arquivo: `emit_target=null` (a skill persiste mas não emite), o resto cai nos defaults acima.
+Sem arquivo: `emit_target=null` (a skill persiste mas não emite), o resto cai nos defaults acima. Para silenciar um tipo específico, subir o threshold correspondente (ex: `overdue_min_days: 3` pra só alertar overdue com 3+ dias). Para mais agressivo no oposto, baixar (ex: `first_touch_min_hours: 6` pra pegar tasks abandonadas mais cedo).
 
 ---
 
