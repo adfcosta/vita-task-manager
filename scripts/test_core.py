@@ -2027,10 +2027,10 @@ def test_check_alerts_no_alerts():
         data_dir = Path(tmp)
         today = date(2026, 4, 13)
         ledger_file = data_dir / "historico" / get_ledger_filename(today)
-        _write_jsonl(ledger_file, [
-            _create_test_ledger_record("t1", "Task normal", "[ ]",
-                                       created_at="2026-04-13T09:00:00"),
-        ])
+        record = _create_test_ledger_record("t1", "Task normal", "[ ]",
+                                             created_at="2026-04-13T09:00:00")
+        record["updated_at"] = "2026-04-13T10:00:00"  # task já foi tocada → sem first_touch
+        _write_jsonl(ledger_file, [record])
 
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from cli import _build_alerts
@@ -2148,11 +2148,13 @@ def test_check_alerts_multiple():
         r1 = _create_test_ledger_record("t1", "Vence hoje", "[ ]",
                                          created_at="2026-04-12T09:00:00")
         r1["due_date"] = "13/04"
+        r1["updated_at"] = "2026-04-12T10:00:00"  # tocada, sem first_touch
 
         r2 = _create_test_ledger_record("t2", "Atrasada e bloqueada", "[ ]",
                                          created_at="2026-04-06T09:00:00",
                                          postpone_count=5)
         r2["due_date"] = "08/04"
+        r2["updated_at"] = "2026-04-08T09:00:00"  # tocada, sem first_touch
 
         r3 = _create_test_ledger_record("t3", "Em progresso parada", "[~]",
                                          created_at="2026-04-09T08:00:00")
@@ -2233,6 +2235,7 @@ def test_heartbeat_tick_critical_overdue():
         record = _create_test_ledger_record("t1", "Task atrasada", "[ ]",
                                              created_at="2026-04-10T09:00:00")
         record["due_date"] = "10/04"  # 3 dias atrás
+        record["updated_at"] = "2026-04-10T10:00:00"  # tocada, isola alerta overdue puro
         _write_jsonl(ledger_file, [record])
 
         alerts_res = _build_alerts(data_dir, today, 2026)
@@ -2270,6 +2273,7 @@ def test_heartbeat_cooldown_suppresses():
         record = _create_test_ledger_record("t1", "Task atrasada", "[ ]",
                                              created_at="2026-04-10T09:00:00")
         record["due_date"] = "10/04"
+        record["updated_at"] = "2026-04-10T10:00:00"  # tocada, isola alerta overdue puro
         _write_jsonl(ledger_file, [record])
 
         alerts_res = _build_alerts(data_dir, today, 2026)
@@ -2299,6 +2303,7 @@ def test_heartbeat_non_critical_ignored():
         record = _create_test_ledger_record("t1", "Task vence hoje", "[ ]",
                                              created_at="2026-04-13T09:00:00")
         record["due_date"] = "13/04"  # due = hoje → alerta due_today, não crítico
+        record["updated_at"] = "2026-04-13T10:00:00"  # tocada, isola due_today
         _write_jsonl(ledger_file, [record])
 
         alerts_res = _build_alerts(data_dir, today, 2026)
@@ -2325,6 +2330,7 @@ def test_heartbeat_thresholds_from_config():
         record = _create_test_ledger_record("t1", "Task 3 dias atrasada", "[ ]",
                                              created_at="2026-04-10T09:00:00")
         record["due_date"] = "10/04"
+        record["updated_at"] = "2026-04-10T10:00:00"  # tocada, isola overdue
         _write_jsonl(ledger_file, [record])
 
         # Config com threshold alto filtra o alerta
@@ -2356,6 +2362,7 @@ def test_heartbeat_max_nudges_per_tick():
             r = _create_test_ledger_record(f"t{i}", f"Task {i}", "[ ]",
                                              created_at="2026-04-10T09:00:00")
             r["due_date"] = "10/04"  # 3 dias atrás (crítico com default min=1)
+            r["updated_at"] = "2026-04-10T10:00:00"  # tocada, isola overdue
             records.append(r)
         _write_jsonl(ledger_file, records)
 
@@ -2459,6 +2466,7 @@ def test_copy_renders_all_library_types():
         "overdue": {"type": "overdue", "description": "X", "days_overdue": 3, "task_id": "t1"},
         "stalled": {"type": "stalled", "description": "X", "hours_since_update": 48, "task_id": "t1"},
         "blocked": {"type": "blocked", "description": "X", "postpone_count": 3, "task_id": "t1"},
+        "first_touch": {"type": "first_touch", "description": "X", "hours_since_created": 15, "task_id": "t1"},
     }
     assert set(COPY_LIBRARY.keys()) == set(fixtures.keys()), "library deve cobrir todos fixtures"
     for t, alert in fixtures.items():
@@ -2483,6 +2491,7 @@ def test_heartbeat_emit_text_uses_copy_library():
         record = _create_test_ledger_record("t1", "Comprar remédio", "[ ]",
                                              created_at="2026-04-10T09:00:00")
         record["due_date"] = "10/04"
+        record["updated_at"] = "2026-04-10T10:00:00"  # tocada, isola overdue
         _write_jsonl(ledger_file, [record])
 
         alerts_res = _build_alerts(data_dir, today, 2026)
@@ -2498,6 +2507,86 @@ def test_heartbeat_emit_text_uses_copy_library():
         print("✓ test_heartbeat_emit_text_uses_copy_library")
 
 
+def test_first_touch_alert_fires():
+    """v2.14.0 spec §5.1: task [ ] criada há 12h+ sem updated_at dispara first_touch."""
+    from ledger import get_ledger_filename
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        # Criada ontem 06:00 → ~42h atrás, sem updated_at → first_touch
+        record = _create_test_ledger_record("t1", "Abrir projeto novo", "[ ]",
+                                             created_at="2026-04-12T06:00:00")
+        _write_jsonl(ledger_file, [record])
+
+        from cli import _build_alerts
+        result = _build_alerts(data_dir, today, 2026)
+
+        ft = [a for a in result["alerts"] if a["type"] == "first_touch"]
+        assert len(ft) == 1
+        assert ft[0]["task_id"] == "t1"
+        assert ft[0]["hours_since_created"] >= 12
+        assert result["counts"]["first_touch"] == 1
+        print("✓ test_first_touch_alert_fires")
+
+
+def test_first_touch_ignored_when_touched():
+    """v2.14.0: task com updated_at (qualquer toque) não dispara first_touch."""
+    from ledger import get_ledger_filename
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        record = _create_test_ledger_record("t1", "Task tocada", "[ ]",
+                                             created_at="2026-04-10T09:00:00")
+        record["updated_at"] = "2026-04-10T10:00:00"  # já foi tocada
+        _write_jsonl(ledger_file, [record])
+
+        from cli import _build_alerts
+        result = _build_alerts(data_dir, today, 2026)
+
+        ft = [a for a in result["alerts"] if a["type"] == "first_touch"]
+        assert len(ft) == 0
+        assert result["counts"]["first_touch"] == 0
+        print("✓ test_first_touch_ignored_when_touched")
+
+
+def test_first_touch_respects_threshold():
+    """v2.14.0: threshold configurável — first_touch_min_hours=24 não dispara em 15h."""
+    from ledger import get_ledger_filename
+    from heartbeat import build_heartbeat_nudges
+    from cli import _build_alerts
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        # Criada hoje 08:00 → ~16h atrás até 23:59, sem toque
+        record = _create_test_ledger_record("t1", "Task fresca", "[ ]",
+                                             created_at="2026-04-13T08:00:00")
+        _write_jsonl(ledger_file, [record])
+
+        # Default 12h dispara
+        result_default = _build_alerts(data_dir, today, 2026)
+        assert result_default["counts"]["first_touch"] == 1
+
+        # Threshold 24h não dispara (passa via CLI arg)
+        result_strict = _build_alerts(data_dir, today, 2026, first_touch_min_hours=24)
+        assert result_strict["counts"]["first_touch"] == 0
+
+        # Via config do heartbeat: threshold 24h → nenhum first_touch emitido
+        config_path = data_dir / "heartbeat-config.json"
+        config_path.write_text(json.dumps({"thresholds": {"first_touch_min_hours": 24}}))
+
+        # Simula o fluxo do cmd_heartbeat_tick: passa threshold do config pra _build_alerts
+        alerts_res = _build_alerts(data_dir, today, 2026, first_touch_min_hours=24)
+        hb = build_heartbeat_nudges(data_dir=data_dir, alerts=alerts_res["alerts"])
+        assert hb["nudges_new"] == 0
+        print("✓ test_first_touch_respects_threshold")
+
+
 def test_nudges_pending_and_ack():
     """get_pending_nudges retorna não-acked; ack_nudge remove da pending."""
     from ledger import get_ledger_filename
@@ -2511,6 +2600,7 @@ def test_nudges_pending_and_ack():
         record = _create_test_ledger_record("t1", "Task atrasada", "[ ]",
                                              created_at="2026-04-10T09:00:00")
         record["due_date"] = "10/04"
+        record["updated_at"] = "2026-04-10T10:00:00"  # tocada, isola overdue
         _write_jsonl(ledger_file, [record])
 
         alerts_res = _build_alerts(data_dir, today, 2026)
@@ -2612,6 +2702,9 @@ def run_all_tests():
     test_copy_variant_deterministic()
     test_copy_renders_all_library_types()
     test_heartbeat_emit_text_uses_copy_library()
+    test_first_touch_alert_fires()
+    test_first_touch_ignored_when_touched()
+    test_first_touch_respects_threshold()
     test_nudges_pending_and_ack()
     print('\n✓ Todos os testes passaram!\n')
 

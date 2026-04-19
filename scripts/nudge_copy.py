@@ -33,8 +33,12 @@ COPY_LIBRARY: dict[str, dict[str, str]] = {
         "A": '🌿 Você adiou "{description}" {postpone_count}x. O que conta como avanço real mínimo hoje?',
         "B": '🌿 "{description}" foi adiada {postpone_count}x. Quer quebrar em algo de 5min que destrave o resto?',
     },
-    # first_touch, due_soon, off_pace, missed_routine entram em versões futuras
-    # (v2.14, v2.17, v2.15, v2.18 respectivamente).
+    "first_touch": {
+        "A": '🌿 Vi que "{description}" ainda não foi tocada ({hours_since_created}h). Faz só o primeiro passo: abrir e definir a próxima ação?',
+        "B": '🌿 "{description}" está na fila há {hours_since_created}h sem movimento. Define em 1 linha qual o primeiro passo?',
+    },
+    # due_soon, off_pace, missed_routine entram em versões futuras
+    # (v2.17, v2.15, v2.18 respectivamente).
 }
 
 VARIANTS: tuple[str, ...] = ("A", "B")
@@ -79,6 +83,8 @@ def _format_alert_part(alert: dict) -> str:
         return f"parada há {alert.get('hours_since_update', '?')}h"
     if t == "blocked":
         return f"adiada {alert.get('postpone_count', '?')}x (bloqueio)"
+    if t == "first_touch":
+        return f"sem toque há {alert.get('hours_since_created', '?')}h"
     if t == "due_today":
         return "vence hoje"
     return t or ""

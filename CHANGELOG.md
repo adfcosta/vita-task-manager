@@ -5,6 +5,44 @@ Todas as mudanças notáveis desta skill serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [2.14.0] - 2026-04-18
+
+### Adicionado
+- **Alerta `first_touch` (spec TDAH §5.1):** task em `[ ]` criada há
+  12h+ sem `updated_at` dispara nudge. Ataca dificuldade de iniciação
+  — alvo nº1 da spec. Threshold configurável via
+  `thresholds.first_touch_min_hours` (default 12, override no
+  `data/heartbeat-config.json`).
+- **Copy library estende pra `first_touch`:** duas variantes A/B
+  seguindo padrão detecção + janela + ação mínima. Variante A pede
+  "abrir e definir a próxima ação"; B pede "define em 1 linha qual o
+  primeiro passo?".
+- **`first_touch` entra em `SEVERITY_ORDER`:** posicionada entre
+  `blocked` e `stalled` — task parada sem toque é urgente mas não
+  passa na frente de coisa já adiada repetidamente.
+
+### Mudado
+- **`_build_alerts` ganha parâmetro `first_touch_min_hours`** (default
+  12). `cmd_heartbeat_tick` lê do config e propaga.
+- **`is_critical` reconhece `first_touch`** comparando
+  `hours_since_created` com threshold.
+- **Record do nudge inclui `hours_since_created`** no contexto quando
+  o alerta primário do grupo é `first_touch`.
+
+### Contexto
+- Terceira fase do roadmap `docs/roadmap-tdah-evidence.md`. Spec §5.1
+  é o alvo nº1 (dificuldade de iniciação — maior fonte de procrastinação
+  em TDAH). Custo médio, valor alto.
+- Qualquer `ledger-start / ledger-progress / ledger-update` já atualiza
+  `updated_at` → zera a janela naturalmente, sem lógica adicional.
+- 3 testes novos (total: 84 passando): `test_first_touch_alert_fires`,
+  `test_first_touch_ignored_when_touched`,
+  `test_first_touch_respects_threshold`. 7 testes existentes
+  atualizados pra setar `updated_at` explicitamente quando o cenário
+  não deveria disparar `first_touch`.
+- `test_copy_renders_all_library_types` agora inclui fixture de
+  `first_touch`.
+
 ## [2.13.0] - 2026-04-18
 
 ### Adicionado
