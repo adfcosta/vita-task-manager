@@ -43,7 +43,30 @@ openclaw cron create --agent vita --spec "*/55 6-23 * * *" --cmd "cli heartbeat-
 
 Template completo em `examples/openclaw/`.
 
-6. **Smoke test:**
+6. **Backup** — tudo que guarda histórico ou input do usuário:
+
+Alvos (irreversível se perder):
+
+- `data/historico/*.jsonl` — ledger (fonte de verdade)
+- `data/proactive-nudges.jsonl` — histórico de nudges
+- `data/historico-execucao.md` — relatório de padrões
+- `input/rotina.md`, `input/agenda-semana.md` — input do usuário
+
+Derivado, regenerável (não precisa backup):
+
+- `data/word_weights.json` — reconstruído por `execution-history`
+- `output/diarias.txt` — reconstruído por `render`
+
+Cron diário (03:00, fora da janela de heartbeat):
+
+```bash
+openclaw cron create --agent vita --spec "0 3 * * *" \
+  --cmd 'rsync -a --delete ~/.openclaw/workspace/vita/skills/vita-task-manager/data/ ~/.openclaw/workspace/vita/skills/vita-task-manager/input/ ~/Backups/vita/$(date +\%Y\%m\%d)/'
+```
+
+Retenção: deixar ≥30 dias. Pruning: `find ~/Backups/vita/ -maxdepth 1 -type d -mtime +30 -exec rm -rf {} +` num cron semanal.
+
+7. **Smoke test:**
 
 ```bash
 VITA_TEST_MODE=1 python3 scripts/test_core.py
@@ -81,7 +104,7 @@ Ledger é append-only + forward-compat → **nenhuma migração** de dados.
 
 - AGENTS: `git show HEAD~1:patches/vita-AGENTS.md` → re-aplicar.
 - Código: `git checkout <tag-anterior>`.
-- Dados: nunca reverter — ledger preserva tudo.
+- Dados (ledger/nudges/execucao/input): ledger é append-only, não precisa reverter. Se perdeu por acidente (rm, disco), restaurar do backup mais recente: `rsync -a ~/Backups/vita/YYYYMMDD/ <workspace>/skills/vita-task-manager/{data,input}/`.
 
 ## Nunca
 
