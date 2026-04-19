@@ -1,8 +1,11 @@
 # Setup
 
 **Versão:** 2.18.0
+**Python:** 3.11.2 (runtime do container `openclaw-gateway`; mínimo 3.11 — usa PEP 604 `X | Y`).
 
 Instruções pra IA instalar ou atualizar a skill. Não é usuário.
+
+No Mac dev com Python < 3.11 no `/usr/bin/python3`, invocar explicitamente: `python3.11` (homebrew: `/opt/homebrew/bin/python3.11`).
 
 ## Detectar modo
 
