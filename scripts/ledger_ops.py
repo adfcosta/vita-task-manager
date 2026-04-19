@@ -173,6 +173,7 @@ def add_task(
     year: int,
     source: Optional[str] = None,
     due_date: Optional[str] = None,
+    due_time: Optional[str] = None,
     context: Optional[str] = None,
     carried_from: Optional[str] = None,
     allow_duplicate: bool = False,
@@ -204,6 +205,7 @@ def add_task(
         "description": description,
         "source": source,
         "due_date": due_date,
+        "due_time": due_time,
         "context": context,
         "created_at": _now_iso(),
         "carried_from": carried_from,
@@ -486,6 +488,7 @@ def update_task(
     context: Optional[str] = None,
     priority: Optional[str] = None,
     due_date: Optional[str] = None,
+    due_time: Optional[str] = None,
 ) -> dict[str, Any]:
     """Atualiza campos de uma task existente sem criar duplicata.
 
@@ -508,6 +511,8 @@ def update_task(
         updates["priority"] = priority
     if due_date is not None:
         updates["due_date"] = due_date
+    if due_time is not None:
+        updates["due_time"] = due_time
 
     if not updates:
         return {"ok": False, "error": "Nenhum campo para atualizar."}

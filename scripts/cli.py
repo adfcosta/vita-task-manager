@@ -271,6 +271,7 @@ def cmd_ledger_add(args) -> int:
         year=args.year,
         source=args.source,
         due_date=args.due,
+        due_time=getattr(args, "due_time", None),
         context=args.context,
         allow_duplicate=args.allow_duplicate,
     )
@@ -326,6 +327,7 @@ def cmd_ledger_update(args) -> int:
         context=args.context,
         priority=args.priority,
         due_date=args.due,
+        due_time=getattr(args, "due_time", None),
     )
     _emit(result)
     return 0 if result["ok"] else 1
@@ -534,6 +536,8 @@ def _build_alerts(
     year: int,
     first_touch_min_hours: int = 12,
     off_pace_ratio: float = 0.7,
+    due_soon_window_hours: int = 4,
+    now: "datetime | None" = None,
 ) -> dict[str, Any]:
     """Inspeciona o ledger e retorna alertas acionáveis (função pura, sem I/O de emit).
 
@@ -546,16 +550,22 @@ def _build_alerts(
       (sem updated_at) — spec TDAH §5.1
     - off_pace: tasks com progress_done/progress_total e due_date futuro
       cujo ritmo está abaixo de off_pace_ratio do esperado — spec §5.6
+    - due_soon: tasks com due_date + due_time cujo vencimento real está
+      dentro da janela due_soon_window_hours — spec §5.2 (v2.17.0).
+      Sem `due_time` no registro, não dispara (legacy-safe).
     """
     try:
         from .ledger import _merge_task_records, get_ledger_filename, get_week_start
     except ImportError:
         from ledger import _merge_task_records, get_ledger_filename, get_week_start
 
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, time as _time
 
     if isinstance(today, str):
         today = _ddmm_to_date(today, year)
+
+    if now is None:
+        now = datetime.now()
 
     hist = data_dir / "historico"
     ledger_path = hist / get_ledger_filename(today)
@@ -670,6 +680,32 @@ def _build_alerts(
             except (ValueError, TypeError):
                 pass
 
+        # Due soon (spec §5.2, v2.17.0): task com due_date + due_time cujo
+        # vencimento real cai na janela due_soon_window_hours. Sem due_time
+        # no registro, não dispara — preserva compat com tasks legadas.
+        due_time = task.get("due_time")
+        if due and due_time:
+            try:
+                dday, dmonth = map(int, due.split("/"))
+                th, tm = map(int, due_time.split(":"))
+                due_dt = datetime.combine(
+                    today.replace(month=dmonth, day=dday),
+                    _time(hour=th, minute=tm),
+                )
+                hours_left = (due_dt - now).total_seconds() / 3600
+                if 0 < hours_left <= due_soon_window_hours:
+                    alerts.append({
+                        "type": "due_soon",
+                        "task_id": task_id,
+                        "description": desc,
+                        "due_date": due,
+                        "due_time": due_time,
+                        "hours_left": round(hours_left, 1),
+                        "priority": task.get("priority"),
+                    })
+            except (ValueError, TypeError):
+                pass
+
         # First touch (spec §5.1): task em [ ] criada há N+ horas sem nenhum toque.
         # "Toque" = qualquer updated_at registrado (ledger-start/progress/update
         # sempre atualizam updated_at). Sem updated_at = nunca foi mexida.
@@ -698,6 +734,7 @@ def _build_alerts(
         "blocked": len([a for a in alerts if a["type"] == "blocked"]),
         "first_touch": len([a for a in alerts if a["type"] == "first_touch"]),
         "off_pace": len([a for a in alerts if a["type"] == "off_pace"]),
+        "due_soon": len([a for a in alerts if a["type"] == "due_soon"]),
     }
 
     return {
@@ -1078,6 +1115,7 @@ def cmd_heartbeat_tick(args) -> int:
     thresholds = config.get("thresholds") or {}
     first_touch_min_hours = thresholds.get("first_touch_min_hours", 12)
     off_pace_ratio = thresholds.get("off_pace_ratio", 0.7)
+    due_soon_window_hours = thresholds.get("due_soon_window_hours", 4)
 
     alerts_result = _build_alerts(
         data_dir,
@@ -1085,6 +1123,7 @@ def cmd_heartbeat_tick(args) -> int:
         args.year,
         first_touch_min_hours=first_touch_min_hours,
         off_pace_ratio=off_pace_ratio,
+        due_soon_window_hours=due_soon_window_hours,
     )
     heartbeat_result = build_heartbeat_nudges(
         data_dir=data_dir,
@@ -1232,6 +1271,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--data-dir", required=True)
     p.add_argument("--source", choices=["rotina", "agenda_semana", "manual"], default="manual")
     p.add_argument("--due", help="Prazo (DD/MM)")
+    p.add_argument("--due-time", dest="due_time", help="Hora do prazo (HH:MM) — habilita due_soon (spec §5.2)")
     p.add_argument("--context", help="Contexto")
     p.add_argument("--allow-duplicate", action="store_true", help="Suprime warning de duplicata")
     p.set_defaults(func=cmd_ledger_add)
@@ -1271,6 +1311,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--context", help="Novo contexto")
     p.add_argument("--priority", choices=["🔴", "🟡", "🟢"], help="Nova prioridade")
     p.add_argument("--due", help="Novo prazo (DD/MM)")
+    p.add_argument("--due-time", dest="due_time", help="Nova hora do prazo (HH:MM)")
     p.add_argument("--today", required=True)
     p.add_argument("--year", type=int, required=True)
     p.add_argument("--data-dir", required=True)

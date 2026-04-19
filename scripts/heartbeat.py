@@ -31,7 +31,18 @@ CONFIG_FILENAME = "heartbeat-config.json"
 # de coisa já adiada.
 # off_pace é preventivo (task ainda não venceu) — fica depois de stalled,
 # antes de due_today.
-SEVERITY_ORDER = {"overdue": 0, "blocked": 1, "first_touch": 2, "stalled": 3, "off_pace": 4, "due_today": 5}
+# due_soon (v2.17.0) entra alto: vencimento em poucas horas é mais
+# urgente que adiamento crônico. Ranqueia depois de overdue e blocked
+# mas antes de first_touch/stalled/off_pace.
+SEVERITY_ORDER = {
+    "overdue": 0,
+    "blocked": 1,
+    "due_soon": 2,
+    "first_touch": 3,
+    "stalled": 4,
+    "off_pace": 5,
+    "due_today": 6,
+}
 
 
 def _nudges_path(data_dir: Path) -> Path:
@@ -53,6 +64,7 @@ def load_heartbeat_config(data_dir: Path) -> dict:
       - thresholds.blocked_min_postpones: 2
       - thresholds.first_touch_min_hours: 12 (v2.14.0, spec §5.1)
       - thresholds.off_pace_ratio: 0.7 (v2.15.0, spec §5.6)
+      - thresholds.due_soon_window_hours: 4 (v2.17.0, spec §5.2)
     """
     path = _config_path(data_dir)
     defaults = {
@@ -66,6 +78,7 @@ def load_heartbeat_config(data_dir: Path) -> dict:
             "blocked_min_postpones": 2,
             "first_touch_min_hours": 12,
             "off_pace_ratio": 0.7,
+            "due_soon_window_hours": 4,
         },
     }
     if not path.exists():
@@ -93,6 +106,7 @@ def is_critical(alert: dict, thresholds: dict | None = None) -> bool:
             "blocked_min_postpones": 2,
             "first_touch_min_hours": 12,
             "off_pace_ratio": 0.7,
+            "due_soon_window_hours": 4,
         }
     t = alert.get("type")
     if t == "overdue":
@@ -107,6 +121,10 @@ def is_critical(alert: dict, thresholds: dict | None = None) -> bool:
         # Threshold (off_pace_ratio) é aplicado em _build_alerts na construção
         # do alerta. Se o alerta chegou aqui com progresso < esperado * ratio,
         # já é crítico por construção.
+        return True
+    if t == "due_soon":
+        # Janela (due_soon_window_hours) aplicada em _build_alerts.
+        # Se o alerta existe, vencimento está iminente → crítico.
         return True
     # due_today e outros tipos não viram nudge crítico por padrão
     return False
@@ -299,6 +317,7 @@ def build_heartbeat_nudges(
             "days_overdue", "hours_since_update", "postpone_count",
             "hours_since_created", "done_units", "total_units",
             "expected_units", "days_remaining", "priority", "due_date",
+            "due_time", "hours_left",
         ):
             if k in primary:
                 record[k] = primary[k]

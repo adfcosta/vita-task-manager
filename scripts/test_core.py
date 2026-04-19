@@ -2468,6 +2468,7 @@ def test_copy_renders_all_library_types():
         "blocked": {"type": "blocked", "description": "X", "postpone_count": 3, "task_id": "t1"},
         "first_touch": {"type": "first_touch", "description": "X", "hours_since_created": 15, "task_id": "t1"},
         "off_pace": {"type": "off_pace", "description": "X", "done_units": 2, "total_units": 10, "expected_units": 5, "days_remaining": 5, "task_id": "t1"},
+        "due_soon": {"type": "due_soon", "description": "X", "due_date": "18/04", "due_time": "20:00", "hours_left": 3.5, "task_id": "t1"},
     }
     assert set(COPY_LIBRARY.keys()) == set(fixtures.keys()), "library deve cobrir todos fixtures"
     for t, alert in fixtures.items():
@@ -2694,6 +2695,127 @@ def test_off_pace_requires_progress_fields():
         off_pace_alerts = [a for a in alerts_res["alerts"] if a["type"] == "off_pace"]
         assert len(off_pace_alerts) == 0
         print("✓ test_off_pace_requires_progress_fields")
+
+
+def test_due_soon_alert_fires_within_window():
+    """v2.17.0 spec §5.2: task com due_date+due_time cujo vencimento está
+    dentro da janela (default 4h) dispara due_soon."""
+    from datetime import datetime
+    from ledger import get_ledger_filename
+    from cli import _build_alerts
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        record = _create_test_ledger_record("t1", "Enviar relatório", "[ ]",
+                                             created_at="2026-04-13T08:00:00")
+        record["due_date"] = "13/04"
+        record["due_time"] = "20:00"
+        record["updated_at"] = "2026-04-13T09:00:00"  # evita first_touch
+        _write_jsonl(ledger_file, [record])
+
+        # Agora: 16h00 do dia. Prazo: 20h00. hours_left = 4.0 — dentro da janela.
+        now = datetime(2026, 4, 13, 16, 0, 0)
+        result = _build_alerts(data_dir, today, 2026, now=now)
+
+        ds = [a for a in result["alerts"] if a["type"] == "due_soon"]
+        assert len(ds) == 1, f"esperado 1 due_soon, got {len(ds)}"
+        assert ds[0]["task_id"] == "t1"
+        assert ds[0]["due_time"] == "20:00"
+        assert 3.9 <= ds[0]["hours_left"] <= 4.1
+        assert result["counts"]["due_soon"] == 1
+        print("✓ test_due_soon_alert_fires_within_window")
+
+
+def test_due_soon_requires_due_time_legacy_safe():
+    """v2.17.0: task sem due_time (formato legado) nunca dispara due_soon,
+    mesmo com due_date no dia."""
+    from datetime import datetime
+    from ledger import get_ledger_filename
+    from cli import _build_alerts
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        record = _create_test_ledger_record("t1", "Task legada", "[ ]",
+                                             created_at="2026-04-13T08:00:00")
+        record["due_date"] = "13/04"
+        # sem due_time — formato legado
+        record["updated_at"] = "2026-04-13T09:00:00"
+        _write_jsonl(ledger_file, [record])
+
+        now = datetime(2026, 4, 13, 16, 0, 0)
+        result = _build_alerts(data_dir, today, 2026, now=now)
+
+        ds = [a for a in result["alerts"] if a["type"] == "due_soon"]
+        assert len(ds) == 0, "task legada (sem due_time) não deve disparar due_soon"
+        # Mas due_today (sem hora) continua funcionando
+        assert result["counts"]["due_today"] == 1
+        print("✓ test_due_soon_requires_due_time_legacy_safe")
+
+
+def test_due_soon_outside_window():
+    """v2.17.0: prazo a 10h de distância com janela padrão de 4h não dispara."""
+    from datetime import datetime
+    from ledger import get_ledger_filename
+    from cli import _build_alerts
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        record = _create_test_ledger_record("t1", "Ainda dá tempo", "[ ]",
+                                             created_at="2026-04-13T08:00:00")
+        record["due_date"] = "13/04"
+        record["due_time"] = "22:00"
+        record["updated_at"] = "2026-04-13T09:00:00"
+        _write_jsonl(ledger_file, [record])
+
+        # Agora: 12h. Prazo: 22h. hours_left = 10 — fora da janela de 4h.
+        now = datetime(2026, 4, 13, 12, 0, 0)
+        result = _build_alerts(data_dir, today, 2026, now=now)
+
+        ds = [a for a in result["alerts"] if a["type"] == "due_soon"]
+        assert len(ds) == 0
+        assert result["counts"]["due_soon"] == 0
+
+        # Com janela custom de 12h, mesmo cenário dispara.
+        result2 = _build_alerts(data_dir, today, 2026, now=now, due_soon_window_hours=12)
+        ds2 = [a for a in result2["alerts"] if a["type"] == "due_soon"]
+        assert len(ds2) == 1, f"com janela 12h, esperado 1 due_soon, got {len(ds2)}"
+        print("✓ test_due_soon_outside_window")
+
+
+def test_due_time_roundtrip_add_task():
+    """v2.17.0: add_task com due_time grava campo no ledger e readback preserva."""
+    from ledger import get_ledger_filename, load_ledger
+    from ledger_ops import add_task
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        ledger_file.parent.mkdir(parents=True, exist_ok=True)
+
+        result = add_task(
+            ledger_path=ledger_file,
+            description="Reunião com cliente",
+            priority="🔴",
+            today_ddmm="13/04",
+            year=2026,
+            due_date="13/04",
+            due_time="18:30",
+        )
+        assert result["ok"]
+
+        records = load_ledger(ledger_file)
+        task_recs = [r for r in records if r.get("type") == "task"]
+        assert len(task_recs) == 1
+        assert task_recs[0].get("due_time") == "18:30"
+        assert task_recs[0].get("due_date") == "13/04"
+        print("✓ test_due_time_roundtrip_add_task")
 
 
 def test_nudges_pending_and_ack():
@@ -3022,6 +3144,10 @@ def run_all_tests():
     test_off_pace_alert_fires_below_ratio()
     test_off_pace_ignored_on_pace()
     test_off_pace_requires_progress_fields()
+    test_due_soon_alert_fires_within_window()
+    test_due_soon_requires_due_time_legacy_safe()
+    test_due_soon_outside_window()
+    test_due_time_roundtrip_add_task()
     test_nudges_pending_and_ack()
     test_nudge_record_has_instrumentation_fields()
     test_mark_delivery_and_ack_with_response_kind()

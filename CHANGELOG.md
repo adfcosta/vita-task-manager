@@ -5,6 +5,50 @@ Todas as mudanças notáveis desta skill serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [2.17.0] - 2026-04-19
+
+### Adicionado
+- **Alerta `due_soon` (spec TDAH §5.2):** task com `due_date` +
+  `due_time` cujo vencimento real cai na janela
+  `due_soon_window_hours` (default 4h) dispara nudge iminente.
+  Preenche o gap entre `due_today` (dia inteiro, sem urgência
+  horária) e `overdue` (já passou).
+- **Campo `due_time` no modelo `Task`** (`Optional[str]`, formato
+  `HH:MM`). Opcional por default: tasks legadas sem hora continuam
+  usando `due_today` pro panorama diário — só o trigger horário de
+  `due_soon` fica inativo pra elas.
+- **Copy library estende `due_soon`:** duas variantes A/B. A foca em
+  "tranca agora" (ação mínima pra garantir entrega); B enquadra como
+  "passo curto já garante".
+- **`due_soon_window_hours` no config** (`thresholds.due_soon_window_hours`,
+  default 4). Aumentar relaxa o gatilho; reduzir deixa mais rente
+  ao prazo.
+- **CLI:** `ledger-add` e `ledger-update` aceitam `--due-time HH:MM`.
+  Parser de `output/diarias.md` reconhece linha `hora_prazo: HH:MM`.
+
+### Mudado
+- **`_build_alerts` ganha `due_soon_window_hours` + `now` (datetime)**
+  como parâmetros. `now` injetável permite testes determinísticos;
+  default é `datetime.now()`.
+- **`SEVERITY_ORDER` insere `due_soon: 2`** entre `blocked: 1` e
+  `first_touch: 3`. Vencimento em poucas horas passa na frente de
+  adiamento crônico ou task sem toque.
+- **`is_critical` reconhece `due_soon`** sempre como crítico — a
+  janela já é aplicada na construção do alerta em `_build_alerts`.
+- **Record do nudge propaga `due_time` e `hours_left`** quando o
+  alerta primário do grupo é `due_soon`.
+- **`_format_alert_part` em `nudge_copy.py`** descreve due_soon
+  como "vence em ~Nh (HH:MM)" em nudges agrupados.
+
+### Contexto
+- Sexta fase do roadmap `docs/roadmap-tdah-evidence.md`. Custo
+  maior que alertas anteriores porque exigiu evoluir o modelo
+  (`Task.due_time`), mas sem breaking change: ledger antigo
+  continua legível, CLI sem `--due-time` continua funcional.
+- 4 novos testes (96 no total): due_soon dentro da janela,
+  fallback legacy (sem `due_time`), fora da janela (+ janela
+  configurável), roundtrip `add_task` com `due_time`.
+
 ## [2.16.0] - 2026-04-18
 
 ### Adicionado

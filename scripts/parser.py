@@ -96,6 +96,8 @@ def parse_task_file(path: str | Path) -> TaskFile:
                     task.carried_from = value
                 elif key == "prazo":
                     task.due_date = value
+                elif key == "hora_prazo":
+                    task.due_time = value
                 elif key == "progresso":
                     percent, done, total, unit = parse_progress_text(value)
                     task.progress_percent = percent
