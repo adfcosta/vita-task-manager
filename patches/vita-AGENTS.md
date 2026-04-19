@@ -58,7 +58,7 @@ Se `ledger-add` retornar `warning.type == "duplicate_suspect"`:
 
 ### Feedback do dia
 
-Todo CRUD e `daily-tick` retornam `feedback_status`:
+`feedback_status` vem de `pipeline`, `render` e `daily-tick` — **não** dos CRUDs. Após CRUD que muda estado relevante, chamar `render` pra obter o status atualizado.
 
 | Status | Ação |
 |---|---|

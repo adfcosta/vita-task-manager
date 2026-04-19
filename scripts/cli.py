@@ -20,23 +20,11 @@ try:
         update_progress as ledger_update_progress,
         update_task as ledger_update_task,
     )
-    from .models import Task
-    from .parser import parse_task_file
     from .pipeline import daily_pipeline
     from .render import render_daily
     from .rollover import perform_rollover
     from .scoring import calculate_total_score
-    from .sorter import sort_task_file
     from .suggester import explain_suggestion, suggest_135
-    from .updater import (
-        add_task as legacy_add_task,
-        cancel_task as legacy_cancel_task,
-        complete_task as legacy_complete_task,
-        load_task_file,
-        save_task_file,
-        update_progress as legacy_update_progress,
-    )
-    from .validator import validate_task_file
     from .weekly_summary import build_weekly_summary, render_weekly_summary_markdown
     from .execution_history import build_execution_history, build_word_weights, load_word_weights, render_markdown as render_history_markdown, write_history_file, write_word_weights
     from .recurrence import (
@@ -65,23 +53,11 @@ except ImportError:
         update_progress as ledger_update_progress,
         update_task as ledger_update_task,
     )
-    from models import Task
-    from parser import parse_task_file
     from pipeline import daily_pipeline
     from render import render_daily
     from rollover import perform_rollover
     from scoring import calculate_total_score
-    from sorter import sort_task_file
     from suggester import explain_suggestion, suggest_135
-    from updater import (
-        add_task as legacy_add_task,
-        cancel_task as legacy_cancel_task,
-        complete_task as legacy_complete_task,
-        load_task_file,
-        save_task_file,
-        update_progress as legacy_update_progress,
-    )
-    from validator import validate_task_file
     from weekly_summary import build_weekly_summary, render_weekly_summary_markdown
     from execution_history import build_execution_history, build_word_weights, load_word_weights, render_markdown as render_history_markdown, write_history_file, write_word_weights
     from recurrence import (
@@ -173,78 +149,6 @@ def _load_task_state(task_id: str, today: str, year: int, data_dir: str) -> tupl
 def _task_not_found(task_id: str) -> int:
     _emit({"ok": False, "error": f"Task não encontrada: {task_id}"})
     return 1
-
-
-def _legacy_save(args, task_file, *, date_value: str) -> None:
-    save_task_file(
-        args.file,
-        task_file,
-        today_ddmm=date_value,
-        year=args.year,
-        refresh_feedback_block=args.refresh_feedback,
-    )
-
-
-def cmd_validate(args) -> int:
-    errors = validate_task_file(parse_task_file(args.file))
-    _emit({"ok": not errors, "errors": errors or []}, compact=False)
-    return 0 if not errors else 1
-
-
-def cmd_summary(args) -> int:
-    task_file = sort_task_file(parse_task_file(args.file), args.today, args.year)
-    _emit(build_daily_summary(task_file, args.today, args.year), compact=False)
-    return 0
-
-
-def cmd_add_legacy(args) -> int:
-    task_file = load_task_file(args.file)
-    legacy_add_task(
-        task_file,
-        Task(
-            status=args.status,
-            priority=args.priority,
-            description=args.description,
-            due_date=args.due,
-            context=args.context,
-            created_at=args.created,
-        ),
-    )
-    _legacy_save(args, task_file, date_value=args.today or args.created)
-    _emit({"ok": True, "action": "add", "task": args.description})
-    return 0
-
-
-def cmd_progress_legacy(args) -> int:
-    task_file = load_task_file(args.file)
-    legacy_update_progress(task_file, args.description, args.done, args.total, args.unit, args.today, args.year)
-    _legacy_save(args, task_file, date_value=args.today)
-    _emit({"ok": True, "action": "progress", "task": args.description})
-    return 0
-
-
-def cmd_complete_legacy(args) -> int:
-    task_file = load_task_file(args.file)
-    legacy_complete_task(task_file, args.description, args.date)
-    _legacy_save(args, task_file, date_value=args.date)
-    _emit({"ok": True, "action": "complete", "task": args.description})
-    return 0
-
-
-def cmd_cancel_legacy(args) -> int:
-    task_file = load_task_file(args.file)
-    legacy_cancel_task(task_file, args.description, args.reason, args.date)
-    _legacy_save(args, task_file, date_value=args.date)
-    _emit({"ok": True, "action": "cancel", "task": args.description})
-    return 0
-
-
-def cmd_resort_legacy(args) -> int:
-    task_file = load_task_file(args.file)
-    sort_task_file(task_file, args.today, args.year)
-    _legacy_save(args, task_file, date_value=args.today)
-    _emit({"ok": True, "action": "resort"})
-    return 0
 
 
 def cmd_pipeline(args) -> int:
@@ -1241,64 +1145,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--output", required=True, help="Caminho de saída")
     p.add_argument("--force-feedback", action="store_true", help="Força refresh de feedback")
     p.set_defaults(func=cmd_pipeline)
-
-    p = sub.add_parser("validate", help="[LEGADO] Valida arquivo")
-    p.add_argument("file", help="Caminho do arquivo")
-    p.set_defaults(func=cmd_validate)
-
-    p = sub.add_parser("summary", help="[LEGADO] Gera resumo")
-    p.add_argument("file", help="Caminho do arquivo")
-    p.add_argument("--today", required=True, help="Data de hoje (DD/MM)")
-    p.add_argument("--year", type=int, required=True, help="Ano atual (YYYY)")
-    p.set_defaults(func=cmd_summary)
-
-    p = sub.add_parser("add", help="[LEGADO] Adiciona tarefa no markdown")
-    p.add_argument("--file", required=True, help="Caminho do arquivo")
-    p.add_argument("--status", required=True, choices=["[ ]", "[~]", "[x]", "[-]"])
-    p.add_argument("--priority", required=True, choices=["🔴", "🟡", "🟢"])
-    p.add_argument("--description", required=True)
-    p.add_argument("--due", help="Prazo (DD/MM)")
-    p.add_argument("--context", help="Contexto")
-    p.add_argument("--created", required=True, help="Data de criação (DD/MM)")
-    p.add_argument("--today", help="Data de hoje (DD/MM)")
-    p.add_argument("--year", type=int, required=True)
-    p.add_argument("--refresh-feedback", action="store_true")
-    p.set_defaults(func=cmd_add_legacy)
-
-    p = sub.add_parser("progress", help="[LEGADO] Atualiza progresso no markdown")
-    p.add_argument("--file", required=True)
-    p.add_argument("--description", required=True)
-    p.add_argument("--done", type=int, required=True)
-    p.add_argument("--total", type=int, required=True)
-    p.add_argument("--unit", required=True)
-    p.add_argument("--today", required=True)
-    p.add_argument("--year", type=int, required=True)
-    p.add_argument("--refresh-feedback", action="store_true")
-    p.set_defaults(func=cmd_progress_legacy)
-
-    p = sub.add_parser("complete", help="[LEGADO] Marca como concluída no markdown")
-    p.add_argument("--file", required=True)
-    p.add_argument("--description", required=True)
-    p.add_argument("--date", required=True)
-    p.add_argument("--year", type=int, required=True)
-    p.add_argument("--refresh-feedback", action="store_true")
-    p.set_defaults(func=cmd_complete_legacy)
-
-    p = sub.add_parser("cancel", help="[LEGADO] Cancela/adia no markdown")
-    p.add_argument("--file", required=True)
-    p.add_argument("--description", required=True)
-    p.add_argument("--reason", required=True)
-    p.add_argument("--date", required=True)
-    p.add_argument("--year", type=int, required=True)
-    p.add_argument("--refresh-feedback", action="store_true")
-    p.set_defaults(func=cmd_cancel_legacy)
-
-    p = sub.add_parser("resort", help="[LEGADO] Reordena tarefas")
-    p.add_argument("--file", required=True)
-    p.add_argument("--today", required=True)
-    p.add_argument("--year", type=int, required=True)
-    p.add_argument("--refresh-feedback", action="store_true")
-    p.set_defaults(func=cmd_resort_legacy)
 
     p = sub.add_parser("ledger-add", help="Adiciona task ao ledger")
     p.add_argument("--description", required=True)

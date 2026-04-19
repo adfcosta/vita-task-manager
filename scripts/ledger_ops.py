@@ -6,6 +6,22 @@ from typing import Any, Optional
 
 import re as _re
 
+_HHMM_RE = _re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+def _validate_due_time(due_time: Optional[str]) -> Optional[str]:
+    """Retorna mensagem de erro se due_time inválido; None se OK ou None.
+
+    Formato exigido: 'HH:MM' 24h (00:00 a 23:59). Rejeita strings como
+    '25:00', '8:00' (precisa zero-padded), ou qualquer coisa fora do regex.
+    """
+    if due_time is None:
+        return None
+    if not isinstance(due_time, str) or not _HHMM_RE.match(due_time):
+        return f"due_time inválido: {due_time!r} (esperado 'HH:MM', 00:00–23:59)"
+    return None
+
+
 try:
     from .ledger import (
         _merge_task_records,
@@ -180,6 +196,9 @@ def add_task(
     alert_on_miss: bool = False,
 ) -> dict[str, Any]:
     """Adiciona nova task ao ledger."""
+    err = _validate_due_time(due_time)
+    if err:
+        return {"ok": False, "error": err}
     created_date = _date_from_ddmm(today_ddmm, year)
     ledger = load_ledger(ledger_path)
     task_id = make_task_id(description, created_date, ledger)
@@ -498,6 +517,10 @@ def update_task(
     em _merge_task_records já faz o fold correto — basta appendar
     um registro com _operation: "update" e os campos novos.
     """
+    err = _validate_due_time(due_time)
+    if err:
+        return {"ok": False, "error": err}
+
     ledger = load_ledger(ledger_path)
     task = find_task(ledger, task_id)
 

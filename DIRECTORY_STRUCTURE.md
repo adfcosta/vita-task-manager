@@ -17,7 +17,6 @@ vita-task-manager/
 │   ├── ledger.py                    # Engine do ledger JSONL
 │   ├── ledger_ops.py                # CRUD, WIP, sync, feedback
 │   ├── models.py                    # Dataclasses (Task, FixedEntry, etc.)
-│   ├── parser.py                    # Parser de input antigo (markdown)
 │   ├── fixed_parser.py              # Parser de rotina.md (+ sigil !nudge)
 │   ├── agenda_parser.py             # Parser de agenda-semana.md
 │   ├── scoring.py                   # Cálculo de score
@@ -36,8 +35,6 @@ vita-task-manager/
 │   ├── feedback_logic.py            # Decisão de feedback_status
 │   ├── weekly_summary.py            # Resumo semanal
 │   ├── calculator.py                # Utilitários de cálculo/datas
-│   ├── updater.py                   # Operações de update in-place (legado)
-│   ├── validator.py                 # Validação (legado)
 │   ├── utils.py                     # Helpers compartilhados
 │   └── test_core.py                 # Suíte de testes
 │
