@@ -15,8 +15,10 @@ import uuid
 
 try:
     from .ledger import load_ledger, append_record
+    from . import nudge_copy
 except ImportError:
     from ledger import load_ledger, append_record
+    import nudge_copy  # type: ignore[no-redef]
 
 
 NUDGES_FILENAME = "proactive-nudges.jsonl"
@@ -160,42 +162,35 @@ def _last_nudge_for(task_id: str, alert_type: str, nudges: list[dict]) -> dict |
     return None
 
 
-def _format_alert_part(alert: dict) -> str:
-    """Converte um alerta individual em fragmento curto ('atrasada há X dias')."""
-    t = alert["type"]
-    if t == "overdue":
-        return f"atrasada há {alert['days_overdue']} dias"
-    if t == "stalled":
-        return f"parada há {alert['hours_since_update']}h"
-    if t == "blocked":
-        return f"adiada {alert['postpone_count']}x (bloqueio)"
-    return ""
+def _render_nudge_text(group_alerts: list[dict]) -> tuple[str, str]:
+    """Escolhe copy pro grupo. Retorna (text_frag, copy_variant).
 
-
-def _format_group_fragment(group_alerts: list[dict]) -> str:
-    """Agrupa múltiplos alert_types da mesma task num fragmento único.
-
-    Exemplos:
-      1 alerta:   "Buscar remédio — atrasada há 3 dias"
-      2 alertas:  "Buscar remédio — atrasada há 3 dias; parada há 48h"
+    - Grupo de 1 alert → COPY_LIBRARY com variante A/B determinística
+    - Grupo com 2+ alerts → render_grouped (copy_variant = "grouped")
+    - Se render_nudge retornar vazio (alert_type sem copy na library),
+      fallback pra render_grouped
     """
-    if not group_alerts:
-        return ""
-    desc = group_alerts[0].get("description", "?")
-    parts = [p for p in (_format_alert_part(a) for a in group_alerts) if p]
-    if not parts:
-        return desc
-    return f"{desc} — {'; '.join(parts)}"
+    if len(group_alerts) == 1:
+        alert = group_alerts[0]
+        variant = nudge_copy.pick_variant(alert.get("task_id", ""), alert["type"])
+        text = nudge_copy.render_nudge(alert, variant)
+        if text:
+            return text, variant
+        # alert_type sem copy definido → usa grouped como fallback
+    return nudge_copy.render_grouped(group_alerts), nudge_copy.GROUPED_VARIANT
 
 
 def _build_emit_text(new_nudges: list[dict]) -> str:
-    """Monta mensagem pra enviar via sessions_send."""
+    """Monta mensagem pra enviar via sessions_send.
+
+    Pra 1 nudge, text_frag já é copy completo (com 🌿 e convite à ação) — usa
+    direto. Pra N nudges, lista em bullets removendo o 🌿 inicial de cada um.
+    """
     if not new_nudges:
         return ""
     if len(new_nudges) == 1:
-        frag = new_nudges[0]["text_frag"]
-        return f'🌿 Vita alertou: "{frag}". Atacar hoje?'
-    bullets = "\n".join(f"• {n['text_frag']}" for n in new_nudges)
+        return new_nudges[0]["text_frag"]
+    bullets = "\n".join(f"• {nudge_copy.strip_prefix(n['text_frag'])}" for n in new_nudges)
     return f"🌿 Vita alertou — pendências:\n{bullets}"
 
 
@@ -259,12 +254,18 @@ def build_heartbeat_nudges(
     new_records: list[dict] = []
     for task_id, group_alerts in to_emit:
         alert_types = [a["type"] for a in group_alerts]
+        # Injeta task_id nos alerts pra pick_variant usar
+        for a in group_alerts:
+            a.setdefault("task_id", task_id)
+        text_frag, copy_variant = _render_nudge_text(group_alerts)
         record = {
             "type": "nudge",
             "id": f"nudge_{uuid.uuid4().hex[:8]}",
             "task_id": task_id,
             "alert_types": alert_types,
-            "text_frag": _format_group_fragment(group_alerts),
+            "text_frag": text_frag,
+            "copy_variant": copy_variant,
+            "cooldown_applied": True,
             "created_at": now.isoformat(),
         }
         # Contexto: campos do primeiro alerta com severidade mais alta no grupo

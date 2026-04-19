@@ -5,6 +5,54 @@ Todas as mudanças notáveis desta skill serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [2.13.0] - 2026-04-18
+
+### Adicionado
+- **Copy library com variantes A/B (spec TDAH §8, §7.3):** novo
+  `scripts/nudge_copy.py` com biblioteca de copy por `alert_type`
+  seguindo estrutura **detecção + janela + ação mínima**. Templates
+  específicos pra overdue/stalled/blocked (first_touch/due_soon/off_pace/
+  missed_routine entram em versões futuras).
+- **`copy_variant` no record (spec §11):** cada nudge registra qual
+  variante foi usada ("A", "B" ou "grouped"). Seleção determinística
+  por hash MD5 de `(task_id, alert_type)` — mesma task sempre mesma
+  variante, diferentes tasks distribuem razoavelmente entre A/B.
+- **`cooldown_applied` no record (spec §11):** booleano explicitando
+  que o nudge passou pela checagem de cooldown (sempre `true` pros
+  persistidos). Redundante mas exigido pela spec de instrumentação.
+- **`render_grouped`:** renderiza copy pra task com múltiplos sinais
+  num prompt único ("... está em risco — atrasada há 3d; parada há
+  48h. Quer destravar com a menor ação possível?").
+
+### Mudado
+- **`emit_text` pra single-nudge:** agora usa copy completo direto
+  (ex: "🌿 'X' atrasou 3d. Em vez de terminar tudo, quer só destravar
+  com uma subtarefa de 10-15min?") em vez do wrapper antigo
+  "🌿 Vita alertou: '...'. Atacar hoje?". Alinha com spec §7.3.
+- **`emit_text` pra múltiplos nudges:** bullets sem `🌿` por item
+  (só no header), evitando emoji-spam.
+- **`_render_nudge_text`:** nova função em `heartbeat.py` que seleciona
+  single vs grouped com fallback pra grouped quando copy library não
+  cobre o tipo.
+
+### Removido
+- **`_format_alert_part` e `_format_group_fragment` em heartbeat.py:**
+  substituídos pelos equivalentes em `nudge_copy.py` (lógica de copy
+  centralizada fora do engine).
+
+### Contexto
+- Segunda fase do roadmap `docs/roadmap-tdah-evidence.md`. Destrava
+  experimentação de A/B via `copy_variant` sem mudança de infra de
+  emissão — mensura em v2.16.0 (KPIs).
+- Módulo batizado `nudge_copy` e não `copy` pra evitar colisão com
+  stdlib `copy` no `sys.path` do script runner.
+- 3 testes novos em `test_core.py` (total: 81 testes passando):
+  `test_copy_variant_deterministic`,
+  `test_copy_renders_all_library_types`,
+  `test_heartbeat_emit_text_uses_copy_library`. Teste antigo
+  `test_heartbeat_tick_critical_overdue` ajustado (assert muda de
+  "3 dias" → "3d" por causa do novo formato curto no copy).
+
 ## [2.12.0] - 2026-04-18
 
 ### Adicionado
