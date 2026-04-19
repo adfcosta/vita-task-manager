@@ -2467,6 +2467,7 @@ def test_copy_renders_all_library_types():
         "stalled": {"type": "stalled", "description": "X", "hours_since_update": 48, "task_id": "t1"},
         "blocked": {"type": "blocked", "description": "X", "postpone_count": 3, "task_id": "t1"},
         "first_touch": {"type": "first_touch", "description": "X", "hours_since_created": 15, "task_id": "t1"},
+        "off_pace": {"type": "off_pace", "description": "X", "done_units": 2, "total_units": 10, "expected_units": 5, "days_remaining": 5, "task_id": "t1"},
     }
     assert set(COPY_LIBRARY.keys()) == set(fixtures.keys()), "library deve cobrir todos fixtures"
     for t, alert in fixtures.items():
@@ -2587,6 +2588,114 @@ def test_first_touch_respects_threshold():
         print("✓ test_first_touch_respects_threshold")
 
 
+def test_off_pace_alert_fires_below_ratio():
+    """v2.15.0 spec §5.6: task com progress 2/10, 10 dias passados de 30, vencimento futuro → off_pace."""
+    from ledger import get_ledger_filename
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        # Criada 10 dias atrás, vence daqui 20 dias (total 30d), 2/10 feitos
+        # Esperado: 10/30 * 10 = 3.33 unidades. Com ratio 0.7 → threshold = 2.33.
+        # Done (2) < 2.33 → off_pace.
+        record = _create_test_ledger_record("t1", "Projeto longo", "[~]",
+                                             created_at="2026-04-03T09:00:00")
+        record["due_date"] = "03/05"  # 20 dias à frente
+        record["progress_done"] = 2
+        record["progress_total"] = 10
+        record["updated_at"] = "2026-04-03T10:00:00"  # tocada, isola off_pace
+        _write_jsonl(ledger_file, [record])
+
+        from cli import _build_alerts
+        result = _build_alerts(data_dir, today, 2026)
+
+        op = [a for a in result["alerts"] if a["type"] == "off_pace"]
+        assert len(op) == 1, f"esperado 1 off_pace, got {len(op)}"
+        assert op[0]["task_id"] == "t1"
+        assert op[0]["done_units"] == 2
+        assert op[0]["total_units"] == 10
+        assert op[0]["days_remaining"] == 20
+        assert op[0]["expected_units"] > 2  # maior que o feito
+        assert result["counts"]["off_pace"] == 1
+        print("✓ test_off_pace_alert_fires_below_ratio")
+
+
+def test_off_pace_ignored_on_pace():
+    """v2.15.0: task com progress dentro do ritmo esperado não dispara off_pace."""
+    from ledger import get_ledger_filename
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        # Mesmo cenário, mas 5/10 (50%) com 10/30 dias passados (33%) — acima do esperado
+        record = _create_test_ledger_record("t1", "Projeto no trilho", "[~]",
+                                             created_at="2026-04-03T09:00:00")
+        record["due_date"] = "03/05"
+        record["progress_done"] = 5
+        record["progress_total"] = 10
+        record["updated_at"] = "2026-04-03T10:00:00"
+        _write_jsonl(ledger_file, [record])
+
+        from cli import _build_alerts
+        result = _build_alerts(data_dir, today, 2026)
+
+        op = [a for a in result["alerts"] if a["type"] == "off_pace"]
+        assert len(op) == 0
+        assert result["counts"]["off_pace"] == 0
+        print("✓ test_off_pace_ignored_on_pace")
+
+
+def test_off_pace_requires_progress_fields():
+    """v2.15.0: task sem progress_total não avalia off_pace (não emite nem ignora, só skip)."""
+    from ledger import get_ledger_filename
+    from heartbeat import build_heartbeat_nudges
+    from cli import _build_alerts
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        # Task sem progress_total — off_pace nunca avalia
+        record = _create_test_ledger_record("t1", "Task sem progresso", "[ ]",
+                                             created_at="2026-04-03T09:00:00")
+        record["due_date"] = "03/05"
+        record["updated_at"] = "2026-04-03T10:00:00"
+        _write_jsonl(ledger_file, [record])
+
+        result = _build_alerts(data_dir, today, 2026)
+        assert result["counts"]["off_pace"] == 0
+
+        # Ratio configurável: se 0.5 (mais permissivo), task com 2/10, 10/30d
+        # expected=3.33 → 3.33 * 0.5 = 1.67. Done (2) >= 1.67 → NÃO dispara.
+        ledger_file2 = data_dir / "historico" / get_ledger_filename(today)
+        r2 = _create_test_ledger_record("t2", "Projeto lento aceitável", "[~]",
+                                          created_at="2026-04-03T09:00:00")
+        r2["due_date"] = "03/05"
+        r2["progress_done"] = 2
+        r2["progress_total"] = 10
+        r2["updated_at"] = "2026-04-03T10:00:00"
+        _write_jsonl(ledger_file2, [record, r2])
+
+        # Ratio padrão 0.7: dispara pra t2 (2 < 3.33 * 0.7 = 2.33)
+        res_default = _build_alerts(data_dir, today, 2026)
+        assert res_default["counts"]["off_pace"] == 1
+
+        # Ratio 0.5: não dispara (2 >= 1.67)
+        res_permissive = _build_alerts(data_dir, today, 2026, off_pace_ratio=0.5)
+        assert res_permissive["counts"]["off_pace"] == 0
+
+        # Via config: heartbeat não emite nudge DE OFF_PACE com ratio permissivo
+        # (outros alertas como stalled podem disparar, mas off_pace não)
+        config_path = data_dir / "heartbeat-config.json"
+        config_path.write_text(json.dumps({"thresholds": {"off_pace_ratio": 0.5}}))
+        alerts_res = _build_alerts(data_dir, today, 2026, off_pace_ratio=0.5)
+        off_pace_alerts = [a for a in alerts_res["alerts"] if a["type"] == "off_pace"]
+        assert len(off_pace_alerts) == 0
+        print("✓ test_off_pace_requires_progress_fields")
+
+
 def test_nudges_pending_and_ack():
     """get_pending_nudges retorna não-acked; ack_nudge remove da pending."""
     from ledger import get_ledger_filename
@@ -2705,6 +2814,9 @@ def run_all_tests():
     test_first_touch_alert_fires()
     test_first_touch_ignored_when_touched()
     test_first_touch_respects_threshold()
+    test_off_pace_alert_fires_below_ratio()
+    test_off_pace_ignored_on_pace()
+    test_off_pace_requires_progress_fields()
     test_nudges_pending_and_ack()
     print('\n✓ Todos os testes passaram!\n')
 

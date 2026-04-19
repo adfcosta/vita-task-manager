@@ -528,7 +528,13 @@ def cmd_ledger_status(args) -> int:
     return 0
 
 
-def _build_alerts(data_dir: Path, today, year: int, first_touch_min_hours: int = 12) -> dict[str, Any]:
+def _build_alerts(
+    data_dir: Path,
+    today,
+    year: int,
+    first_touch_min_hours: int = 12,
+    off_pace_ratio: float = 0.7,
+) -> dict[str, Any]:
     """Inspeciona o ledger e retorna alertas acionáveis (função pura, sem I/O de emit).
 
     Alertas detectados:
@@ -538,6 +544,8 @@ def _build_alerts(data_dir: Path, today, year: int, first_touch_min_hours: int =
     - blocked: tasks com postpone_count >= 3
     - first_touch: tasks em [ ] criadas há first_touch_min_hours+ sem toque
       (sem updated_at) — spec TDAH §5.1
+    - off_pace: tasks com progress_done/progress_total e due_date futuro
+      cujo ritmo está abaixo de off_pace_ratio do esperado — spec §5.6
     """
     try:
         from .ledger import _merge_task_records, get_ledger_filename, get_week_start
@@ -631,6 +639,37 @@ def _build_alerts(data_dir: Path, today, year: int, first_touch_min_hours: int =
                 "postpone_count": postpone,
             })
 
+        # Off pace (spec §5.6): task com progress e due_date futuro andando
+        # abaixo do ritmo esperado. Preventivo — dispara antes de virar overdue.
+        done = task.get("progress_done")
+        total = task.get("progress_total")
+        created = task.get("created_at")
+        if done is not None and total and due and created:
+            try:
+                day, month = map(int, due.split("/"))
+                due_date = today.replace(month=month, day=day)
+                created_date = datetime.fromisoformat(created).date()
+                total_days = max((due_date - created_date).days, 1)
+                days_passed = (today - created_date).days
+                # Só avalia se ainda não venceu e já rodou pelo menos 1 dia
+                if days_passed > 0 and due_date >= today and int(total) > 0:
+                    expected = (days_passed / total_days) * int(total)
+                    if int(done) < expected * off_pace_ratio:
+                        days_remaining = (due_date - today).days
+                        alerts.append({
+                            "type": "off_pace",
+                            "task_id": task_id,
+                            "description": desc,
+                            "done_units": int(done),
+                            "total_units": int(total),
+                            "expected_units": round(expected, 1),
+                            "days_remaining": days_remaining,
+                            "unit": task.get("unit"),
+                            "priority": task.get("priority"),
+                        })
+            except (ValueError, TypeError):
+                pass
+
         # First touch (spec §5.1): task em [ ] criada há N+ horas sem nenhum toque.
         # "Toque" = qualquer updated_at registrado (ledger-start/progress/update
         # sempre atualizam updated_at). Sem updated_at = nunca foi mexida.
@@ -658,6 +697,7 @@ def _build_alerts(data_dir: Path, today, year: int, first_touch_min_hours: int =
         "stalled": len([a for a in alerts if a["type"] == "stalled"]),
         "blocked": len([a for a in alerts if a["type"] == "blocked"]),
         "first_touch": len([a for a in alerts if a["type"] == "first_touch"]),
+        "off_pace": len([a for a in alerts if a["type"] == "off_pace"]),
     }
 
     return {
@@ -1037,8 +1077,15 @@ def cmd_heartbeat_tick(args) -> int:
     cooldown_hours = args.cooldown_hours if args.cooldown_hours is not None else config["cooldown_hours"]
     thresholds = config.get("thresholds") or {}
     first_touch_min_hours = thresholds.get("first_touch_min_hours", 12)
+    off_pace_ratio = thresholds.get("off_pace_ratio", 0.7)
 
-    alerts_result = _build_alerts(data_dir, today, args.year, first_touch_min_hours=first_touch_min_hours)
+    alerts_result = _build_alerts(
+        data_dir,
+        today,
+        args.year,
+        first_touch_min_hours=first_touch_min_hours,
+        off_pace_ratio=off_pace_ratio,
+    )
     heartbeat_result = build_heartbeat_nudges(
         data_dir=data_dir,
         alerts=alerts_result["alerts"],
