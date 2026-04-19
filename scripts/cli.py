@@ -1120,8 +1120,35 @@ def cmd_nudges_pending(args) -> int:
 
 def cmd_nudges_ack(args) -> int:
     """Marca um nudge como acked."""
-    record = ack_nudge(Path(args.data_dir), args.nudge_id, source=args.source)
+    record = ack_nudge(
+        Path(args.data_dir),
+        args.nudge_id,
+        source=args.source,
+        response_kind=args.response_kind,
+    )
     _emit({"ok": True, "ack": record})
+    return 0
+
+
+def cmd_nudge_delivery(args) -> int:
+    """Registra resultado da entrega de um nudge (spec §11)."""
+    try:
+        from .heartbeat import mark_delivery
+    except ImportError:
+        from heartbeat import mark_delivery  # type: ignore[no-redef]
+    record = mark_delivery(Path(args.data_dir), args.nudge_id, args.status)
+    _emit({"ok": True, "delivery": record})
+    return 0
+
+
+def cmd_nudge_kpis(args) -> int:
+    """Calcula KPIs dos nudges (spec §16)."""
+    try:
+        from .kpis import compute_kpis
+    except ImportError:
+        from kpis import compute_kpis  # type: ignore[no-redef]
+    result = compute_kpis(Path(args.data_dir), window_days=args.window_days)
+    _emit({"ok": True, "kpis": result})
     return 0
 
 
@@ -1431,7 +1458,24 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--nudge-id", required=True)
     p.add_argument("--data-dir", required=True)
     p.add_argument("--source", default="manual", help="Origem do ack (emit, user, etc.)")
+    p.add_argument(
+        "--response-kind",
+        default=None,
+        choices=["agora", "depois", "replanejar", "ignorado"],
+        help="Classificação da resposta (spec §11)",
+    )
     p.set_defaults(func=cmd_nudges_ack)
+
+    p = sub.add_parser("nudge-delivery", help="Registra status de entrega de um nudge (spec §11)")
+    p.add_argument("--nudge-id", required=True)
+    p.add_argument("--data-dir", required=True)
+    p.add_argument("--status", required=True, choices=["success", "failed", "skipped"])
+    p.set_defaults(func=cmd_nudge_delivery)
+
+    p = sub.add_parser("nudge-kpis", help="KPIs dos nudges na janela (spec §16)")
+    p.add_argument("--data-dir", required=True)
+    p.add_argument("--window-days", type=int, default=7)
+    p.set_defaults(func=cmd_nudge_kpis)
 
     return parser
 

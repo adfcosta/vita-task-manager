@@ -285,6 +285,13 @@ def build_heartbeat_nudges(
             "copy_variant": copy_variant,
             "cooldown_applied": True,
             "created_at": now.isoformat(),
+            # v2.16.0 instrumentação (spec §11). Preenchidos em runtime:
+            #  - emitted_at: quando sessions_send confirma entrega
+            #  - delivery_status: success | failed | skipped | pending
+            #  - next_task_update_at: retrospectivo, via link_nudge_to_next_update
+            "emitted_at": None,
+            "delivery_status": "pending",
+            "next_task_update_at": None,
         }
         # Contexto: campos do primeiro alerta com severidade mais alta no grupo
         primary = min(group_alerts, key=lambda a: SEVERITY_ORDER.get(a["type"], 99))
@@ -316,14 +323,68 @@ def get_pending_nudges(data_dir: Path) -> list[dict]:
     return [r for r in records if r.get("type") == "nudge" and r.get("id") not in acked_ids]
 
 
-def ack_nudge(data_dir: Path, nudge_id: str, source: str = "manual") -> dict:
-    """Marca um nudge como acked (append-only)."""
+def ack_nudge(
+    data_dir: Path,
+    nudge_id: str,
+    source: str = "manual",
+    response_kind: str | None = None,
+) -> dict:
+    """Marca um nudge como acked (append-only).
+
+    v2.16.0: `response_kind` (spec §11) — classifica a resposta do usuário:
+      agora | depois | replanejar | ignorado | None (desconhecido)
+    """
     nudges_file = _nudges_path(data_dir)
     record = {
         "type": "nudge_ack",
         "nudge_id": nudge_id,
         "acked_at": datetime.now().isoformat(),
         "ack_source": source,
+    }
+    if response_kind is not None:
+        record["response_kind"] = response_kind
+    append_record(nudges_file, record)
+    return record
+
+
+def mark_delivery(
+    data_dir: Path,
+    nudge_id: str,
+    status: str,
+    emitted_at: datetime | None = None,
+) -> dict:
+    """Registra resultado da entrega de um nudge (spec §11).
+
+    status: success | failed | skipped
+    Emite registro separado `type=delivery` pra manter append-only;
+    leitura do nudge consolidado consulta o último delivery do id.
+    """
+    nudges_file = _nudges_path(data_dir)
+    if emitted_at is None:
+        emitted_at = datetime.now()
+    record = {
+        "type": "delivery",
+        "nudge_id": nudge_id,
+        "delivery_status": status,
+        "emitted_at": emitted_at.isoformat(),
+    }
+    append_record(nudges_file, record)
+    return record
+
+
+def link_nudge_to_next_update(
+    data_dir: Path,
+    nudge_id: str,
+    task_update_at: datetime,
+) -> dict:
+    """Linka retroativamente um nudge ao próximo update da task alvo
+    (preenche `next_task_update_at`). Append-only via registro `link`.
+    """
+    nudges_file = _nudges_path(data_dir)
+    record = {
+        "type": "link",
+        "nudge_id": nudge_id,
+        "next_task_update_at": task_update_at.isoformat(),
     }
     append_record(nudges_file, record)
     return record
