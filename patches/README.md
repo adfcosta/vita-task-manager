@@ -3,7 +3,7 @@
 Esta pasta contém **deltas** que a skill `vita-task-manager` enxerta nos arquivos
 do agente Vita no Domus. São blocos de conteúdo, não arquivos completos.
 
-**Versão atual dos patches:** v2.16.0
+**Versão atual dos patches:** v2.17.0
 
 ## Filosofia: delta, não substituição
 
@@ -36,7 +36,7 @@ Essa separação garante que:
 Cada patch usa marcadores HTML para delimitar o bloco a enxertar:
 
 ```
-<!-- BEGIN vita-task-manager v2.16.0 -->
+<!-- BEGIN vita-task-manager v2.17.0 -->
 ...conteúdo do bloco...
 <!-- END vita-task-manager -->
 ```
@@ -98,7 +98,7 @@ with open("vita/AGENTS.md", "w") as f:
 
 ## Versionamento
 
-A versão no marcador BEGIN (`v2.16.0`) deve sempre casar com a versão da skill.
+A versão no marcador BEGIN (`v2.17.0`) deve sempre casar com a versão da skill.
 Se divergir, é sinal de update pendente — o Faber pode detectar isso comparando
 o marcador do AGENTS vivo com a versão atual da skill.
 

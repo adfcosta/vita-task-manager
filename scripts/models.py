@@ -18,6 +18,7 @@ class Task:
     description: str
 
     due_date: Optional[str] = None
+    due_time: Optional[str] = None  # 'HH:MM' — v2.17.0, spec §5.2 (due_soon)
 
     progress_percent: Optional[int] = None
     progress_done: Optional[int] = None
