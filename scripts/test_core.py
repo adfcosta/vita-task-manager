@@ -3054,6 +3054,94 @@ def test_pending_keeps_failed_delivery():
         print("✓ test_pending_keeps_failed_delivery")
 
 
+def test_cooldown_bypassed_when_delivery_failed():
+    """Nudge com último delivery=failed não aplica cooldown — usuário nunca recebeu."""
+    from ledger import get_ledger_filename
+    from heartbeat import build_heartbeat_nudges, mark_delivery
+    from cli import _build_alerts
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        record = _create_test_ledger_record("t1", "Task atrasada", "[ ]",
+                                             created_at="2026-04-10T09:00:00")
+        record["due_date"] = "10/04"
+        record["updated_at"] = "2026-04-10T10:00:00"
+        _write_jsonl(ledger_file, [record])
+
+        alerts_res = _build_alerts(data_dir, today, 2026)
+
+        # Run 1: gera nudge
+        result1 = build_heartbeat_nudges(data_dir=data_dir, alerts=alerts_res["alerts"])
+        assert result1["nudges_new"] == 1
+        nudge_id = result1["nudges_records"][0]["id"]
+
+        # Delivery falhou — sessions_send retornou erro
+        mark_delivery(data_dir, nudge_id, "failed")
+
+        # Run 2: deveria re-emitir, pois o anterior não chegou
+        result2 = build_heartbeat_nudges(data_dir=data_dir, alerts=alerts_res["alerts"])
+        assert result2["nudges_new"] == 1, "failed delivery should not trigger cooldown"
+        assert result2["suppressed_by_cooldown"] == 0
+        print("✓ test_cooldown_bypassed_when_delivery_failed")
+
+
+def test_cooldown_bypassed_when_delivery_skipped():
+    """Idem pra skipped — Janus decidiu não entregar, usuário não recebeu."""
+    from ledger import get_ledger_filename
+    from heartbeat import build_heartbeat_nudges, mark_delivery
+    from cli import _build_alerts
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        record = _create_test_ledger_record("t1", "Task atrasada", "[ ]",
+                                             created_at="2026-04-10T09:00:00")
+        record["due_date"] = "10/04"
+        record["updated_at"] = "2026-04-10T10:00:00"
+        _write_jsonl(ledger_file, [record])
+
+        alerts_res = _build_alerts(data_dir, today, 2026)
+
+        result1 = build_heartbeat_nudges(data_dir=data_dir, alerts=alerts_res["alerts"])
+        nudge_id = result1["nudges_records"][0]["id"]
+        mark_delivery(data_dir, nudge_id, "skipped")
+
+        result2 = build_heartbeat_nudges(data_dir=data_dir, alerts=alerts_res["alerts"])
+        assert result2["nudges_new"] == 1, "skipped delivery should not trigger cooldown"
+        print("✓ test_cooldown_bypassed_when_delivery_skipped")
+
+
+def test_cooldown_applied_when_delivery_success():
+    """Sanity check: delivery success mantém o cooldown (comportamento normal)."""
+    from ledger import get_ledger_filename
+    from heartbeat import build_heartbeat_nudges, mark_delivery
+    from cli import _build_alerts
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        record = _create_test_ledger_record("t1", "Task atrasada", "[ ]",
+                                             created_at="2026-04-10T09:00:00")
+        record["due_date"] = "10/04"
+        record["updated_at"] = "2026-04-10T10:00:00"
+        _write_jsonl(ledger_file, [record])
+
+        alerts_res = _build_alerts(data_dir, today, 2026)
+
+        result1 = build_heartbeat_nudges(data_dir=data_dir, alerts=alerts_res["alerts"])
+        nudge_id = result1["nudges_records"][0]["id"]
+        mark_delivery(data_dir, nudge_id, "success")
+
+        result2 = build_heartbeat_nudges(data_dir=data_dir, alerts=alerts_res["alerts"])
+        assert result2["nudges_new"] == 0, "success delivery should still trigger cooldown"
+        assert result2["suppressed_by_cooldown"] == 1
+        print("✓ test_cooldown_applied_when_delivery_success")
+
+
 def test_due_time_validation_rejects_bad_format():
     """add_task e update_task rejeitam due_time fora do formato HH:MM 24h."""
     from ledger import get_ledger_filename
@@ -3417,6 +3505,9 @@ def run_all_tests():
     test_pending_excludes_successful_delivery_after_24h()
     test_pending_keeps_recent_successful_delivery()
     test_pending_keeps_failed_delivery()
+    test_cooldown_bypassed_when_delivery_failed()
+    test_cooldown_bypassed_when_delivery_skipped()
+    test_cooldown_applied_when_delivery_success()
     test_due_time_validation_rejects_bad_format()
     test_nudge_record_has_instrumentation_fields()
     test_mark_delivery_and_ack_with_response_kind()

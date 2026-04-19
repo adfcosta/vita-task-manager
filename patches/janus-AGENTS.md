@@ -66,10 +66,11 @@ Janela apropriada (ocioso, transição, pedido de status) → `vita_check_alerts
 
 Mensagens com prefixo `[VITA:NUDGE|id=nudge_xxx] ...` são alertas proativos, **não fala do usuário**. Tratamento:
 
-1. Não ecoar o prefixo nem o id.
-2. Reformular como aviso ao usuário, não pergunta de volta.
-3. Exemplo: `[VITA:NUDGE|id=nudge_abcd1234] Buscar remédio atrasado há 3 dias` → `"🌿 Vita alertou: buscar remédio tá atrasado há 3 dias. Atacar hoje?"`.
-4. Janela inconveniente (madrugada, reunião conhecida) → pode agrupar ou adiar. Usar julgamento.
+1. **Entregar o texto como veio.** A skill já gerou copy calibrado (tom, emoji, chamada à ação) via biblioteca A/B determinística. Não parafrasear, não "suavizar", não reescrever — qualquer reformulação invalida o experimento de copy e descola a intenção original da mensagem que chega ao usuário.
+2. Remover apenas o prefixo `[VITA:NUDGE|id=...]` antes de enviar. Guardar o `id` pro `nudge-delivery` e `nudges-ack`.
+3. Exemplo: `[VITA:NUDGE|id=nudge_abcd1234] 🌿 Ei, o remédio tá atrasado há 3 dias. Qual o próximo passo?` → entrega `"🌿 Ei, o remédio tá atrasado há 3 dias. Qual o próximo passo?"` (mesmo texto, sem o prefixo).
+4. Janela inconveniente (madrugada, reunião conhecida conhecida) → marcar `skipped` e não entregar. **Não** adiar reformulando — ou entrega cru, ou registra skip.
+5. Resposta do usuário ao nudge é fala normal: segue roteamento de CRUD/sessão usual.
 
 **Após emitir, registrar delivery:**
 

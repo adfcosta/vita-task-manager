@@ -168,10 +168,25 @@ def is_in_cooldown(
     cooldown_hours: int,
     now: datetime,
 ) -> bool:
-    """Retorna True se o último nudge pra essa task+tipo foi há menos que cooldown_hours.
+    """Retorna True se o último nudge pra essa task+tipo foi há menos que
+    cooldown_hours **e** chegou ao usuário (delivery_status in {success, pending}).
+
+    Nudges cujo último delivery foi `failed` ou `skipped` não contam pra cooldown:
+    o usuário nunca recebeu, então re-emitir no próximo tick é o comportamento
+    correto. Sem essa checagem, uma falha em `sessions_send` trava o alerta por
+    24h enquanto o usuário fica às escuras (bug v2.18.0, fix em auditoria externa).
 
     Aceita records antigos com `alert_type` (string) e novos com `alert_types` (lista).
     """
+    # Mapa nudge_id → último delivery_status (append-only, última entrada vence)
+    last_delivery_status: dict[str, str] = {}
+    for r in nudges:
+        if r.get("type") == "delivery":
+            nid = r.get("nudge_id")
+            status = r.get("delivery_status")
+            if nid and status:
+                last_delivery_status[nid] = status
+
     for rec in reversed(nudges):
         if rec.get("type") != "nudge":
             continue
@@ -188,8 +203,15 @@ def is_in_cooldown(
             created = datetime.fromisoformat(rec["created_at"])
         except (KeyError, ValueError, TypeError):
             continue
-        if (now - created).total_seconds() < cooldown_hours * 3600:
-            return True
+        if (now - created).total_seconds() >= cooldown_hours * 3600:
+            continue  # nudge antigo, fora da janela
+        # Dentro da janela: só vale como cooldown se chegou (ou ainda vai chegar).
+        # failed/skipped = não chegou, re-emitir é desejado.
+        nid = rec.get("id")
+        status = last_delivery_status.get(nid) if nid else None
+        if status in {"failed", "skipped"}:
+            continue
+        return True
     return False
 
 
