@@ -23,7 +23,7 @@ Substituir tudo entre os marcadores pelo conteúdo novo deste patch.
 
 ---
 
-<!-- BEGIN vita-task-manager v2.17.0 -->
+<!-- BEGIN vita-task-manager v2.18.0 -->
 ## Sistema de Tasks (via vita-task-manager)
 
 **Regra de ouro:** Vita nunca edita arquivos de task direto. Toda
@@ -104,7 +104,7 @@ nudge e limita a `max_nudges_per_tick` por tick. Thresholds e limites
 vivem em `data/heartbeat-config.json` — editar o JSON tem efeito no
 próximo tick, sem restart.
 
-Defaults (spec-aligned, v2.17.0):
+Defaults (spec-aligned, v2.18.0):
 
 ```json
 {
@@ -124,7 +124,7 @@ Defaults (spec-aligned, v2.17.0):
 `updated_at` — qualquer `ledger-start/progress/update` conta como
 toque e zera o alerta.
 
-`off_pace` (v2.17.0, spec §5.6): task com `progress_done`/`progress_total`
+`off_pace` (v2.18.0, spec §5.6): task com `progress_done`/`progress_total`
 e `due_date` futuro cujo `done` < `(dias_passados / dias_totais) * total
 * off_pace_ratio`. Preventivo — dispara antes de virar overdue. Sem
 `progress_total` definido no task, não avalia.
@@ -182,7 +182,7 @@ Todo comando:
 
 ## Validação após aplicação
 
-- [ ] Marcadores `<!-- BEGIN vita-task-manager v2.17.0 -->` e
+- [ ] Marcadores `<!-- BEGIN vita-task-manager v2.18.0 -->` e
       `<!-- END vita-task-manager -->` presentes no AGENTS vivo
 - [ ] Seções fora do bloco (Session Start, Scope, Safety, Memory,
       Operating Rules, etc.) intactas

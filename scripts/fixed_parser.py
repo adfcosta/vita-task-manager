@@ -14,6 +14,10 @@ except ImportError:
 # Regex para horário no início: "06:00 |" ou "6:00|"
 TIME_RE = re.compile(r'^(\d{1,2}:\d{2})\s*\|')
 
+# v2.18.0 (spec §5.7 + §14.4): sufixo "!nudge" marca a rotina como
+# opt-in pra alerta missed_routine.
+NUDGE_FLAG_RE = re.compile(r'\s*!nudge\b\s*$')
+
 
 def parse_rotina(path: str | Path) -> list[FixedEntry]:
     """Parseia rotina.md e retorna lista de FixedEntry.
@@ -79,6 +83,12 @@ def _parse_entry_line(line: str) -> Optional[FixedEntry]:
         time_range = time_match.group(1)
         line = line[time_match.end():].strip()
 
+    # v2.18.0: detecta "!nudge" no fim pra opt-in de missed_routine
+    alert_on_miss = False
+    if NUDGE_FLAG_RE.search(line):
+        alert_on_miss = True
+        line = NUDGE_FLAG_RE.sub("", line)
+
     # O restante é a descrição
     description = line.strip()
     if not description:
@@ -89,6 +99,7 @@ def _parse_entry_line(line: str) -> Optional[FixedEntry]:
         recurrence="daily",
         time_range=time_range,
         priority="🟢",  # padrão neutro — user define depois
+        alert_on_miss=alert_on_miss,
     )
 
 

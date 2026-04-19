@@ -2469,6 +2469,7 @@ def test_copy_renders_all_library_types():
         "first_touch": {"type": "first_touch", "description": "X", "hours_since_created": 15, "task_id": "t1"},
         "off_pace": {"type": "off_pace", "description": "X", "done_units": 2, "total_units": 10, "expected_units": 5, "days_remaining": 5, "task_id": "t1"},
         "due_soon": {"type": "due_soon", "description": "X", "due_date": "18/04", "due_time": "20:00", "hours_left": 3.5, "task_id": "t1"},
+        "missed_routine": {"type": "missed_routine", "description": "X", "expected_at": "08:00", "hours_late": 1.5, "task_id": "t1"},
     }
     assert set(COPY_LIBRARY.keys()) == set(fixtures.keys()), "library deve cobrir todos fixtures"
     for t, alert in fixtures.items():
@@ -2818,6 +2819,120 @@ def test_due_time_roundtrip_add_task():
         print("✓ test_due_time_roundtrip_add_task")
 
 
+def test_missed_routine_fires_after_grace():
+    """v2.18.0 spec §5.7: rotina opt-in (`alert_on_miss=True`) em [ ]
+    com horário esperado passado há >=1h dispara missed_routine."""
+    from datetime import datetime
+    from ledger import get_ledger_filename
+    from cli import _build_alerts
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        record = _create_test_ledger_record("t1", "Tomar remédio manhã", "[ ]",
+                                             source="rotina",
+                                             created_at="2026-04-13T06:00:00")
+        record["context"] = "08:00"
+        record["alert_on_miss"] = True
+        # Toque explícito pra evitar first_touch confundir o teste
+        record["updated_at"] = "2026-04-13T06:01:00"
+        _write_jsonl(ledger_file, [record])
+
+        # Agora: 10h — 2h após horário esperado, passou da graça de 1h.
+        now = datetime(2026, 4, 13, 10, 0, 0)
+        result = _build_alerts(data_dir, today, 2026, now=now)
+
+        mr = [a for a in result["alerts"] if a["type"] == "missed_routine"]
+        assert len(mr) == 1, f"esperado 1 missed_routine, got {len(mr)}"
+        assert mr[0]["task_id"] == "t1"
+        assert mr[0]["expected_at"] == "08:00"
+        assert mr[0]["hours_late"] >= 1.0
+        assert result["counts"]["missed_routine"] == 1
+        print("✓ test_missed_routine_fires_after_grace")
+
+
+def test_missed_routine_requires_opt_in():
+    """v2.18.0 spec §14.4: rotina sem `alert_on_miss` NUNCA dispara,
+    mesmo que passe do horário (spec é explícita: opt-in estrito)."""
+    from datetime import datetime
+    from ledger import get_ledger_filename
+    from cli import _build_alerts
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        record = _create_test_ledger_record("t1", "Meditação", "[ ]",
+                                             source="rotina",
+                                             created_at="2026-04-13T06:00:00")
+        record["context"] = "08:00"
+        # sem alert_on_miss — formato default, não opt-in
+        record["updated_at"] = "2026-04-13T06:01:00"
+        _write_jsonl(ledger_file, [record])
+
+        now = datetime(2026, 4, 13, 12, 0, 0)  # 4h depois, bem além da graça
+        result = _build_alerts(data_dir, today, 2026, now=now)
+
+        mr = [a for a in result["alerts"] if a["type"] == "missed_routine"]
+        assert len(mr) == 0, "rotina sem !nudge não deve disparar missed_routine"
+        assert result["counts"]["missed_routine"] == 0
+        print("✓ test_missed_routine_requires_opt_in")
+
+
+def test_missed_routine_within_grace_does_not_fire():
+    """v2.18.0: antes da janela de graça (default 1h) o alerta ainda não sai."""
+    from datetime import datetime
+    from ledger import get_ledger_filename
+    from cli import _build_alerts
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        data_dir = Path(tmp)
+        today = date(2026, 4, 13)
+        ledger_file = data_dir / "historico" / get_ledger_filename(today)
+        record = _create_test_ledger_record("t1", "Tomar remédio noite", "[ ]",
+                                             source="rotina",
+                                             created_at="2026-04-13T06:00:00")
+        record["context"] = "20:00"
+        record["alert_on_miss"] = True
+        record["updated_at"] = "2026-04-13T06:01:00"
+        _write_jsonl(ledger_file, [record])
+
+        # Agora: 20h30 — 30min atrasado, ainda dentro da graça de 1h.
+        now = datetime(2026, 4, 13, 20, 30, 0)
+        result = _build_alerts(data_dir, today, 2026, now=now)
+        assert result["counts"]["missed_routine"] == 0
+
+        # Janela custom de 15min: 30min já dispara.
+        result2 = _build_alerts(data_dir, today, 2026, now=now,
+                                 missed_routine_grace_hours=0.25)
+        assert result2["counts"]["missed_routine"] == 1
+        print("✓ test_missed_routine_within_grace_does_not_fire")
+
+
+def test_fixed_parser_reads_nudge_flag():
+    """v2.18.0: `!nudge` no fim da linha vira `alert_on_miss=True`
+    na FixedEntry. Descrição retorna limpa (sem o flag)."""
+    from fixed_parser import parse_rotina
+
+    with tempfile.TemporaryDirectory(prefix="vita_test_") as tmp:
+        p = Path(tmp) / "rotina.md"
+        p.write_text(
+            "# Rotina\n\n"
+            "## Tarefas Diárias\n\n"
+            "- 08:00 | Tomar remédio !nudge\n"
+            "- 09:00 | Ler e-mails\n",
+            encoding="utf-8",
+        )
+        entries = parse_rotina(p)
+
+        by_desc = {e.description: e for e in entries}
+        assert "Tomar remédio" in by_desc, "descrição deve sair sem !nudge"
+        assert by_desc["Tomar remédio"].alert_on_miss is True
+        assert by_desc["Ler e-mails"].alert_on_miss is False
+        print("✓ test_fixed_parser_reads_nudge_flag")
+
+
 def test_nudges_pending_and_ack():
     """get_pending_nudges retorna não-acked; ack_nudge remove da pending."""
     from ledger import get_ledger_filename
@@ -3148,6 +3263,10 @@ def run_all_tests():
     test_due_soon_requires_due_time_legacy_safe()
     test_due_soon_outside_window()
     test_due_time_roundtrip_add_task()
+    test_missed_routine_fires_after_grace()
+    test_missed_routine_requires_opt_in()
+    test_missed_routine_within_grace_does_not_fire()
+    test_fixed_parser_reads_nudge_flag()
     test_nudges_pending_and_ack()
     test_nudge_record_has_instrumentation_fields()
     test_mark_delivery_and_ack_with_response_kind()

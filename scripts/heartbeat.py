@@ -34,14 +34,19 @@ CONFIG_FILENAME = "heartbeat-config.json"
 # due_soon (v2.17.0) entra alto: vencimento em poucas horas é mais
 # urgente que adiamento crônico. Ranqueia depois de overdue e blocked
 # mas antes de first_touch/stalled/off_pace.
+# missed_routine (v2.18.0) é opt-in explícito — usuário marcou a
+# rotina como "!nudge" justamente porque perder tem consequência
+# (ex: medicação). Ranqueia logo após blocked, empatado em peso com
+# due_soon — ambos são "urgente hoje".
 SEVERITY_ORDER = {
     "overdue": 0,
     "blocked": 1,
-    "due_soon": 2,
-    "first_touch": 3,
-    "stalled": 4,
-    "off_pace": 5,
-    "due_today": 6,
+    "missed_routine": 2,
+    "due_soon": 3,
+    "first_touch": 4,
+    "stalled": 5,
+    "off_pace": 6,
+    "due_today": 7,
 }
 
 
@@ -65,6 +70,7 @@ def load_heartbeat_config(data_dir: Path) -> dict:
       - thresholds.first_touch_min_hours: 12 (v2.14.0, spec §5.1)
       - thresholds.off_pace_ratio: 0.7 (v2.15.0, spec §5.6)
       - thresholds.due_soon_window_hours: 4 (v2.17.0, spec §5.2)
+      - thresholds.missed_routine_grace_hours: 1 (v2.18.0, spec §5.7)
     """
     path = _config_path(data_dir)
     defaults = {
@@ -79,6 +85,7 @@ def load_heartbeat_config(data_dir: Path) -> dict:
             "first_touch_min_hours": 12,
             "off_pace_ratio": 0.7,
             "due_soon_window_hours": 4,
+            "missed_routine_grace_hours": 1,
         },
     }
     if not path.exists():
@@ -107,6 +114,7 @@ def is_critical(alert: dict, thresholds: dict | None = None) -> bool:
             "first_touch_min_hours": 12,
             "off_pace_ratio": 0.7,
             "due_soon_window_hours": 4,
+            "missed_routine_grace_hours": 1,
         }
     t = alert.get("type")
     if t == "overdue":
@@ -125,6 +133,10 @@ def is_critical(alert: dict, thresholds: dict | None = None) -> bool:
     if t == "due_soon":
         # Janela (due_soon_window_hours) aplicada em _build_alerts.
         # Se o alerta existe, vencimento está iminente → crítico.
+        return True
+    if t == "missed_routine":
+        # Opt-in explícito (spec §14.4): usuário marcou com !nudge,
+        # e janela de graça já foi aplicada em _build_alerts.
         return True
     # due_today e outros tipos não viram nudge crítico por padrão
     return False
@@ -318,6 +330,7 @@ def build_heartbeat_nudges(
             "hours_since_created", "done_units", "total_units",
             "expected_units", "days_remaining", "priority", "due_date",
             "due_time", "hours_left",
+            "expected_at", "hours_late",
         ):
             if k in primary:
                 record[k] = primary[k]
