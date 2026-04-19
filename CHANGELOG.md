@@ -5,6 +5,47 @@ Todas as mudanças notáveis desta skill serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [2.12.0] - 2026-04-18
+
+### Adicionado
+- **Thresholds configuráveis (spec TDAH §9):** `data/heartbeat-config.json`
+  agora aceita bloco `thresholds` com `overdue_min_days`,
+  `stalled_min_hours`, `blocked_min_postpones`. Edita → próximo tick já
+  aplica, sem restart. Defaults spec-aligned: `overdue≥1d`,
+  `stalled≥24h`, `blocked≥2` (antes eram 2d / 48h / 3 postpones).
+- **`max_nudges_per_tick` (spec §10.1):** config ganha campo, default 3.
+  Excedentes ficam em `over_limit_deferred` no payload e reaparecem no
+  tick seguinte, preservando contexto sem spam.
+- **Agrupamento por task (spec §10.2):** `_group_alerts_by_task` mescla
+  múltiplos alert_types da mesma task num único nudge. Ex: task com
+  overdue+stalled → 1 record com `alert_types: ["overdue", "stalled"]`
+  e `text_frag: "… — atrasada há Xd; parada há Yh"`.
+- **Ordenação por severidade:** grupos com alert mais crítico
+  (overdue > blocked > stalled) emitidos antes quando exceder
+  `max_nudges_per_tick`.
+
+### Mudado
+- **Record de nudge:** campo `alert_type: str` migrou pra
+  `alert_types: list[str]`. Compat retroativa em `is_in_cooldown` e
+  `_last_nudge_for` (aceitam ambos formatos na leitura).
+- **`is_critical(alert, thresholds)`:** ganha 2º parâmetro; default
+  spec-aligned preservado quando omitido.
+- **`build_heartbeat_nudges`:** ganha parâmetro opcional `config=`
+  pra testes; carrega `load_heartbeat_config(data_dir)` por padrão.
+- **`patches/vita-AGENTS.md` v2.12.0:** seção Heartbeat reescrita com
+  bloco de defaults de config em JSON + menção explícita a
+  agrupamento e limite por tick.
+
+### Contexto
+- Primeira fase do roadmap `docs/roadmap-tdah-evidence.md`. Destrava
+  experimentação comportamental: mudar threshold agora é ajustar JSON,
+  não editar Python.
+- 4 testes novos em `test_core.py` (total: 78 testes passando):
+  `test_heartbeat_thresholds_from_config`,
+  `test_heartbeat_max_nudges_per_tick`,
+  `test_heartbeat_groups_same_task_alerts`,
+  `test_heartbeat_cooldown_covers_group`.
+
 ## [2.11.3] - 2026-04-18
 
 ### Mudado

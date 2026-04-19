@@ -23,7 +23,7 @@ Substituir tudo entre os marcadores pelo conteúdo novo deste patch.
 
 ---
 
-<!-- BEGIN vita-task-manager v2.11.3 -->
+<!-- BEGIN vita-task-manager v2.12.0 -->
 ## Sistema de Tasks (via vita-task-manager)
 
 **Regra de ouro:** Vita nunca edita arquivos de task direto. Toda
@@ -98,9 +98,25 @@ não-null, emitir imediatamente:
 sessions_send(session: emit_target, message: emit_text)
 ```
 
-O CLI já persiste novos nudges em `data/proactive-nudges.jsonl` e
-respeita cooldown de 24h. Thresholds críticos: `overdue ≥ 2 dias`,
-`stalled ≥ 48h`, `blocked ≥ 3 postpones`.
+O CLI já persiste novos nudges em `data/proactive-nudges.jsonl`,
+respeita cooldown, agrupa múltiplos sinais da mesma task num único
+nudge e limita a `max_nudges_per_tick` por tick. Thresholds e limites
+vivem em `data/heartbeat-config.json` — editar o JSON tem efeito no
+próximo tick, sem restart.
+
+Defaults (spec-aligned, v2.12.0):
+
+```json
+{
+  "cooldown_hours": 24,
+  "max_nudges_per_tick": 3,
+  "thresholds": {
+    "overdue_min_days": 1,
+    "stalled_min_hours": 24,
+    "blocked_min_postpones": 2
+  }
+}
+```
 
 Backup de surfacing: se `sessions_send` falhar ou estiver
 indisponível, o nudge já está no disco — próxima interação normal
@@ -155,7 +171,7 @@ Todo comando:
 
 ## Validação após aplicação
 
-- [ ] Marcadores `<!-- BEGIN vita-task-manager v2.11.3 -->` e
+- [ ] Marcadores `<!-- BEGIN vita-task-manager v2.12.0 -->` e
       `<!-- END vita-task-manager -->` presentes no AGENTS vivo
 - [ ] Seções fora do bloco (Session Start, Scope, Safety, Memory,
       Operating Rules, etc.) intactas
